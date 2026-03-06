@@ -154,7 +154,10 @@ def upgrade(session: requests.Session, record_file: Path) -> None:
     payload = {
         "name": LAB_NAME,
         "code": LAB_CODE,
-        "address": full_address,
+        "address": LAB_ADDRESS,
+        "city": LAB_CITY,
+        "province": LAB_PROVINCE,
+        "postal_code": LAB_POSTAL_CODE,
         "contact_email": LAB_CONTACT_EMAIL,
         "contact_phone": LAB_CONTACT_PHONE,
         "country": LAB_COUNTRY,
@@ -166,6 +169,8 @@ def upgrade(session: requests.Session, record_file: Path) -> None:
 
     url = f"{API_BASE_URL}{API_VERSION}{LABS_ENDPOINT}"
     resp = session.post(url, json=payload, timeout=30)
+    if not resp.ok:
+        print_error(f"API error {resp.status_code}: {resp.text}")
     resp.raise_for_status()
     data = resp.json()
     lab = data.get("data") or data
