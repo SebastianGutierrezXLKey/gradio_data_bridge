@@ -68,6 +68,7 @@ def print_info(msg: str):
 # --- API Configuration ---
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 API_VERSION = os.getenv("API_VERSION", "/api/v1")
+API_TOKEN = os.getenv("API_TOKEN", "")
 API_LOGIN_ENDPOINT = os.getenv("API_LOGIN_ENDPOINT", "/auth/login")
 API_LOGIN_EMAIL = os.getenv("API_LOGIN_EMAIL", "")
 API_LOGIN_PASSWORD = os.getenv("API_LOGIN_PASSWORD", "")
@@ -92,6 +93,17 @@ OUTPUT_DIR = Path(__file__).parent / "output"
 # ---------------------------------------------------------------------------
 # API helpers
 # ---------------------------------------------------------------------------
+
+def api_session_from_token(token: str) -> requests.Session:
+    """Build an authenticated session from a pre-existing Bearer token (service account)."""
+    session = requests.Session()
+    session.headers.update({
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+    })
+    return session
+
 
 def api_login(email: str, password: str) -> requests.Session:
     """Authenticate with the xlhub API and return an authenticated session."""
@@ -247,6 +259,11 @@ Examples:
         help="Delete the laboratory created by a previous upgrade run",
     )
     parser.add_argument(
+        "--token",
+        default=None,
+        help="Bearer token for service account auth (default: API_TOKEN from .env). Takes priority over email/password.",
+    )
+    parser.add_argument(
         "--email",
         default=None,
         help="API login email (default: API_LOGIN_EMAIL from .env)",
@@ -306,18 +323,22 @@ Examples:
         if missing:
             print_error(f"Missing required .env variables: {', '.join(missing)}")
 
+    token = args.token or API_TOKEN
     email = args.email or API_LOGIN_EMAIL
     password = args.password or API_LOGIN_PASSWORD
 
-    if not email:
-        print_error("API email is required. Use --email or set API_LOGIN_EMAIL in .env")
-    if not password:
-        print_error("API password is required. Use --password or set API_LOGIN_PASSWORD in .env")
-
     print_step("API - Authenticating")
     try:
-        session = api_login(email, password)
-        print_success(f"Authenticated to {API_BASE_URL}")
+        if token:
+            session = api_session_from_token(token)
+            print_success(f"Using service account token for {API_BASE_URL}")
+        else:
+            if not email:
+                print_error("API email is required. Use --email, --token, or set API_LOGIN_EMAIL / API_TOKEN in .env")
+            if not password:
+                print_error("API password is required. Use --password, --token, or set API_LOGIN_PASSWORD / API_TOKEN in .env")
+            session = api_login(email, password)
+            print_success(f"Authenticated to {API_BASE_URL}")
     except Exception as exc:
         print_error(f"API authentication failed: {exc}")
 
