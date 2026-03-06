@@ -98,7 +98,7 @@ ACCOUNTS_TABLE = "xlkey.accounts"
 ZONE_COLUMNS = [
     "id", '"FARM_ID"', '"FIELD_ID"', "site_id", '"FIELD_NAME"',
     '"SOURCE"', "zone_name", "zone_name_2", "year_key",
-    '"SR_UPLOAD_DATE"', "area_acre",
+    '"S3_UPLOAD_DATE"', "area_acre",
 ]
 # Columns to exclude from sample_unit_metadata (already used as name or geometry)
 METADATA_EXCLUDE_COLS = {"zone_name_2", "geometry"}
