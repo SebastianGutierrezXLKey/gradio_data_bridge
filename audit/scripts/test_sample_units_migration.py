@@ -253,25 +253,56 @@ async def upgrade(
     zones = await fetch_zones(conn, col_name, value)
     print_success(f"Fetched {len(zones)} zones from source database")
 
+    # Build a set of (zone_name_2, FIELD_NAME) already present in the target API
+    print_step("UPGRADE - Checking Existing Units in Target API")
+    existing_keys: set[tuple[str, str]] = set()
+    if not dry_run:
+        try:
+            url = f"{API_BASE_URL}{API_VERSION}{UNITS_ENDPOINT}"
+            resp = session.get(url, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            existing_units = data.get("data") or []
+            if not isinstance(existing_units, list):
+                existing_units = []
+            for unit in existing_units:
+                name = str(unit.get("name") or "")
+                field = str((unit.get("sample_unit_metadata") or {}).get("FIELD_NAME") or "")
+                existing_keys.add((name, field))
+            print_info(f"Found {len(existing_units)} existing units in API ({len(existing_keys)} unique name/field pairs)")
+        except Exception as exc:
+            print_warning(f"Could not fetch existing units (will proceed without duplicate check): {exc}")
+    else:
+        print_warning("DRY RUN — skipping existing-units check")
+
     print_step(f"UPGRADE - {'Simulating' if dry_run else 'Sending to Target API'}")
     if dry_run:
         print_warning("DRY RUN — no API calls will be made")
 
     mapping: list[dict] = []
     succeeded = 0
+    skipped = 0
     failed = 0
 
     for i, row in enumerate(zones, 1):
         source_id = str(row.get("id", i))
+        zone_name = str(row.get("zone_name_2") or "")
+        field_name = str(row.get("FIELD_NAME") or "")
         payload = build_unit_payload(row)
 
         if dry_run:
             print_info(
                 f"[{i}/{len(zones)}] Would POST source_id={source_id} "
-                f"name={payload.get('name')!r} "
+                f"name={zone_name!r} field={field_name!r} "
                 f"geometry_type={payload['geometry'].get('type') if isinstance(payload.get('geometry'), dict) else ('present' if payload.get('geometry') else 'NULL')}"
             )
             succeeded += 1
+            continue
+
+        # Skip if already exists in target API
+        if (zone_name, field_name) in existing_keys:
+            print_warning(f"[{i}/{len(zones)}] SKIP — already exists: name={zone_name!r} field={field_name!r}")
+            skipped += 1
             continue
 
         try:
@@ -284,13 +315,13 @@ async def upgrade(
             mapping.append({
                 "source_id": source_id,
                 "target_api_id": target_id,
-                "FIELD_NAME": str(row.get("FIELD_NAME", "")),
-                "zone_name_2": str(row.get("zone_name_2", "")),
+                "FIELD_NAME": field_name,
+                "zone_name_2": zone_name,
             })
             succeeded += 1
 
             if i % 50 == 0 or i == len(zones):
-                print_success(f"[{i}/{len(zones)}] {succeeded} ok, {failed} errors")
+                print_success(f"[{i}/{len(zones)}] {succeeded} ok, {skipped} skipped, {failed} errors")
 
         except Exception as exc:
             failed += 1
@@ -303,7 +334,7 @@ async def upgrade(
         print_success(f"Mapping file saved: {mapping_file}")
 
     print_step("UPGRADE - Summary")
-    print_success(f"Source records: {filtered} | Sent: {succeeded} | Failed: {failed}")
+    print_success(f"Source records: {filtered} | Sent: {succeeded} | Skipped (already exist): {skipped} | Failed: {failed}")
     if dry_run:
         print_warning("Dry run — no records were written to the API")
 
