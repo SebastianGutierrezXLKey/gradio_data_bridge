@@ -74,13 +74,17 @@ API_LOGIN_PASSWORD = os.getenv("API_LOGIN_PASSWORD", "")
 
 LABS_ENDPOINT = "/soil-sampling/laboratories"
 
-# --- Laboratory Details (from .env or defaults) ---
-LAB_NAME = os.getenv("LAB_NAME", "AgroEnviroLab")
-LAB_CODE = os.getenv("LAB_CODE", "AEL-001")
-LAB_ADDRESS = os.getenv("LAB_ADDRESS", "1642 rue de la Ferme, La Pocatière, QC G0B 1Z0")
-LAB_CONTACT_EMAIL = os.getenv("LAB_CONTACT_EMAIL", "info@agro-enviro-lab.com")
-LAB_CONTACT_PHONE = os.getenv("LAB_CONTACT_PHONE", "+1-866-288-1079")
-LAB_COUNTRY = os.getenv("LAB_COUNTRY", "Canada")
+# --- Laboratory Details (required — all must be set in .env) ---
+LAB_NAME = os.getenv("LAB_NAME", "")
+LAB_CODE = os.getenv("LAB_CODE", "")
+LAB_ADDRESS = os.getenv("LAB_ADDRESS", "")
+LAB_CITY = os.getenv("LAB_CITY", "")
+LAB_PROVINCE = os.getenv("LAB_PROVINCE", "")
+LAB_POSTAL_CODE = os.getenv("LAB_POSTAL_CODE", "")
+LAB_CONTACT_EMAIL = os.getenv("LAB_CONTACT_EMAIL", "")
+LAB_CONTACT_PHONE = os.getenv("LAB_CONTACT_PHONE", "")
+LAB_COUNTRY = os.getenv("LAB_COUNTRY", "")
+LAB_SUPPORTED_FORMATS: dict = json.loads(os.getenv("LAB_SUPPORTED_FORMATS", "{}"))
 
 OUTPUT_DIR = Path(__file__).parent / "output"
 
@@ -146,13 +150,15 @@ def upgrade(session: requests.Session, record_file: Path) -> None:
 
     print_success(f"No existing laboratory named '{LAB_NAME}' found. Proceeding with creation.")
 
+    full_address = f"{LAB_ADDRESS}, {LAB_CITY}, {LAB_PROVINCE} {LAB_POSTAL_CODE}"
     payload = {
         "name": LAB_NAME,
         "code": LAB_CODE,
-        "address": LAB_ADDRESS,
+        "address": full_address,
         "contact_email": LAB_CONTACT_EMAIL,
         "contact_phone": LAB_CONTACT_PHONE,
         "country": LAB_COUNTRY,
+        "supported_formats": LAB_SUPPORTED_FORMATS,
     }
 
     print_step("UPGRADE - Creating Laboratory")
@@ -268,14 +274,32 @@ Examples:
     print_step("SETUP - Configuration")
     print(f"   Mode: {'DOWNGRADE' if args.downgrade else 'UPGRADE'}")
     if not args.downgrade:
-        print(f"   Lab name : {LAB_NAME}")
-        print(f"   Lab code : {LAB_CODE}")
-        print(f"   Address  : {LAB_ADDRESS}")
-        print(f"   Email    : {LAB_CONTACT_EMAIL}")
-        print(f"   Phone    : {LAB_CONTACT_PHONE}")
-        print(f"   Country  : {LAB_COUNTRY}")
+        print(f"   Lab name  : {LAB_NAME}")
+        print(f"   Lab code  : {LAB_CODE}")
+        print(f"   Address   : {LAB_ADDRESS}")
+        print(f"   City      : {LAB_CITY}")
+        print(f"   Province  : {LAB_PROVINCE}")
+        print(f"   Postal    : {LAB_POSTAL_CODE}")
+        print(f"   Email     : {LAB_CONTACT_EMAIL}")
+        print(f"   Phone     : {LAB_CONTACT_PHONE}")
+        print(f"   Country   : {LAB_COUNTRY}")
+        print(f"   Formats   : {LAB_SUPPORTED_FORMATS}")
     print(f"   Record file: {args.record_file}")
     print(f"   API: {API_BASE_URL}{API_VERSION}{LABS_ENDPOINT}")
+
+    # Validate lab vars (only needed for upgrade)
+    if not args.downgrade:
+        missing = [
+            name for name, val in {
+                "LAB_NAME": LAB_NAME, "LAB_CODE": LAB_CODE,
+                "LAB_ADDRESS": LAB_ADDRESS, "LAB_CITY": LAB_CITY,
+                "LAB_PROVINCE": LAB_PROVINCE, "LAB_POSTAL_CODE": LAB_POSTAL_CODE,
+                "LAB_CONTACT_EMAIL": LAB_CONTACT_EMAIL, "LAB_CONTACT_PHONE": LAB_CONTACT_PHONE,
+                "LAB_COUNTRY": LAB_COUNTRY, "LAB_SUPPORTED_FORMATS": LAB_SUPPORTED_FORMATS,
+            }.items() if not val
+        ]
+        if missing:
+            print_error(f"Missing required .env variables: {', '.join(missing)}")
 
     email = args.email or API_LOGIN_EMAIL
     password = args.password or API_LOGIN_PASSWORD
