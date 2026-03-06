@@ -1,0 +1,1640 @@
+{
+  "info": {
+    "_postman_id": "688f2ff2-2f16-4668-91df-ea3f60a0eb3d",
+    "name": "SoilSampling_Endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "51253995",
+    "_collection_link": "https://go.postman.co/collection/51253995-688f2ff2-2f16-4668-91df-ea3f60a0eb3d?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "Laboratories",
+      "item": [
+        {
+          "name": "Créer un laboratoire",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "pm.environment.set(\"created_laboratory_id\", jsonData.data.id);",
+                  "console.log(\"created_laboratory_id:\", jsonData.data.id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Laboratoire Agri-Analyse\",\n  \"code\": \"AA-001\",\n  \"address\": \"123 rue des Sciences, Québec, QC\",\n  \"contact_email\": \"info@agri-analyse.ca\",\n  \"contact_phone\": \"+1 418 555-0100\",\n  \"country\": \"Canada\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/laboratories",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "laboratories"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Liste des laboratoires",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response structure is correct\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success');",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "    pm.expect(jsonData).to.have.property('data');",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test(\"Laboratories items contain expected fields with correct types\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "",
+                  "    // Only validate items when data exists and is a non-empty array",
+                  "    if (jsonData && Array.isArray(jsonData.data) && jsonData.data.length > 0) {",
+                  "        const expectedStringFields = [",
+                  "            'name',",
+                  "            'code',",
+                  "            'address',",
+                  "            'contact_email',",
+                  "            'contact_phone',",
+                  "            'country',",
+                  "            'created_at'",
+                  "        ];",
+                  "",
+                  "        // Fields that may legitimately be null (or string)",
+                  "        const nullableStringFields = [",
+                  "            'updated_at'",
+                  "        ];",
+                  "",
+                  "        jsonData.data.forEach((item, index) => {",
+                  "            pm.expect(item, `data[${index}] should be an object`).to.be.an('object');",
+                  "",
+                  "            expectedStringFields.forEach((field) => {",
+                  "                pm.expect(item, `data[${index}] missing field '${field}'`).to.have.property(field);",
+                  "                pm.expect(item[field], `data[${index}].${field} should be a string`).to.be.a('string');",
+                  "            });",
+                  "",
+                  "            nullableStringFields.forEach((field) => {",
+                  "                pm.expect(item, `data[${index}] missing field '${field}'`).to.have.property(field);",
+                  "                if (item[field] !== null) {",
+                  "                    pm.expect(item[field], `data[${index}].${field} should be a string when present`).to.be.a('string');",
+                  "                }",
+                  "            });",
+                  "",
+                  "            pm.expect(item, `data[${index}] missing field 'id'`).to.have.property('id');",
+                  "            pm.expect(item.id, `data[${index}].id should be a number`).to.be.a('number');",
+                  "        });",
+                  "    }",
+                  "});",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/laboratories",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "laboratories"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Détails d'un laboratoire",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response structure is correct\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success');",
+                  "    pm.expect(jsonData).to.have.property('data');",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test(\"Response data contains required non-empty string fields\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('data');",
+                  "    pm.expect(jsonData.data).to.be.an('object');",
+                  "",
+                  "    ['name', 'code', 'address'].forEach(function (key) {",
+                  "        pm.expect(jsonData.data, `data should have property '${key}'`).to.have.property(key);",
+                  "        pm.expect(jsonData.data[key], `data.${key} should be a non-empty string`).to.be.a('string').and.to.have.length.greaterThan(0);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test(\"Response data id matches requested laboratory id\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('data');",
+                  "    pm.expect(jsonData.data).to.have.property('id');",
+                  "",
+                  "    var expectedId = pm.variables.get('created_laboratory_id');",
+                  "    pm.expect(expectedId, 'Expected laboratory id variable (created_laboratory_id) should be set').to.not.be.undefined;",
+                  "    pm.expect(expectedId, 'Expected laboratory id variable (created_laboratory_id) should be set').to.not.be.null;",
+                  "",
+                  "    pm.expect(String(jsonData.data.id), 'data.id should match created_laboratory_id').to.eql(String(expectedId));",
+                  "});",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/laboratories/{{created_laboratory_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "laboratories",
+                "{{created_laboratory_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modifier un laboratoire",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Updated fields are reflected in response\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "",
+                  "    // Collect fields that were sent in the PATCH body",
+                  "    var sentBody = {};",
+                  "    try {",
+                  "        sentBody = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw) : {};",
+                  "    } catch (e) {",
+                  "        sentBody = {};",
+                  "    }",
+                  "",
+                  "    // If API wraps the entity under `data`, use that; otherwise use root",
+                  "    var data = (jsonData && jsonData.data) ? jsonData.data : jsonData;",
+                  "",
+                  "    Object.keys(sentBody).forEach(function (key) {",
+                  "        pm.expect(data, `Response should contain updated field '${key}'`).to.have.property(key);",
+                  "        pm.expect(String(data[key]), `Field '${key}' should match value sent in request`).to.eql(String(sentBody[key]));",
+                  "    });",
+                  "});",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_email\": \"nouveau@agri-analyse.ca\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/laboratories/{{created_laboratory_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "laboratories",
+                "{{created_laboratory_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Supprimer un laboratoire",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 204 No Content\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.test(\"Response body is empty\", function () {",
+                  "    pm.expect(pm.response.text()).to.be.empty;",
+                  "});",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/laboratories/{{created_laboratory_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "laboratories",
+                "{{created_laboratory_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Campaigns",
+      "item": [
+        {
+          "name": "Créer une campagne",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "pm.environment.set(\"created_campaign_id\", jsonData.data.id);",
+                  "console.log(\"created_campaign_id:\", jsonData.data.id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "packages": {},
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Campagne Sol Printemps 2026\",\n  \"start_date\": \"2026-04-01\",\n  \"end_date\": \"2026-05-15\",\n  \"status\": \"PLANNED\",\n  \"source\": \"manual\",\n  \"interpolation_params\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/campaigns",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "campaigns"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Liste des campagnes",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/campaigns?farm_id={{farm_id}}&page=1&size=20",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "campaigns"
+              ],
+              "query": [
+                {
+                  "key": "farm_id",
+                  "value": "{{farm_id}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Détails d'une campagne",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/campaigns/{{created_campaign_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "campaigns",
+                "{{created_campaign_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modifier une campagne",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACTIVE\",\n  \"notes\": \"Campagne démarrée\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/campaigns/{{created_campaign_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "campaigns",
+                "{{created_campaign_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Supprimer une campagne (soft delete)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/campaigns/{{created_campaign_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "campaigns",
+                "{{created_campaign_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Sampling Units",
+      "item": [
+        {
+          "name": "Créer un point",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "pm.environment.set(\"created_unit_point_id\", jsonData.data.id);",
+                  "console.log(\"created_unit_point_id:\", jsonData.data.id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"unit_type\": \"point\",\n  \"geometry\": {\n    \"type\": \"Point\",\n    \"coordinates\": [\n      -73.45331,\n      45.37321\n    ]\n  },\n  \"sample_unit_metadata\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/units",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "units"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Créer une zone",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "pm.environment.set(\"created_unit_zone_id\", jsonData.data.id);",
+                  "console.log(\"created_unit_zone_id:\", jsonData.data.id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"unit_type\": \"zone\",\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [\n          -73.4537,\n          45.3732\n        ],\n        [\n          -73.453,\n          45.3729\n        ],\n        [\n          -73.4525,\n          45.3732\n        ],\n        [\n          -73.4534,\n          45.3736\n        ],\n        [\n          -73.4537,\n          45.3732\n        ]\n      ]\n    ]\n  },\n  \"sample_unit_metadata\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/units",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "units"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Créer un point dans zone",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"parent_sampling_unit_id\": \"{{created_unit_zone_id}}\",\n  \"unit_type\": \"point\",\n  \"geometry\": {\n    \"type\": \"Point\",\n    \"coordinates\": [\n      -73.4533,\n      45.3732\n    ]\n  },\n  \"sample_unit_metadata\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/units",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "units"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Liste des unités (zones)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/units?campaign_id={{created_campaign_id}}&field_id={{created_field_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "units"
+              ],
+              "query": [
+                {
+                  "key": "campaign_id",
+                  "value": "{{created_campaign_id}}"
+                },
+                {
+                  "key": "field_id",
+                  "value": "{{created_field_id}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Détails d'une unité",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/units/{{created_unit_zone_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "units",
+                "{{created_unit_zone_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Sous-unités d'une zone",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/units/{{created_unit_zone_id}}/children",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "units",
+                "{{created_unit_zone_id}}",
+                "children"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modifier une unité",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Zone A - Modifiée\",\n  \"depth_cm\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/units/{{created_unit_zone_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "units",
+                "{{created_unit_zone_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Supprimer une unité",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/units/{{created_unit_zone_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "units",
+                "{{created_unit_zone_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Samples",
+      "item": [
+        {
+          "name": "Créer un échantillon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "pm.environment.set(\"created_sample_id\", jsonData.data.id);",
+                  "console.log(\"created_sample_id:\", jsonData.data.id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sampling_unit_id\": \"{{created_unit_point_id}}\",\n  \"sampling_campaign_id\": \"{{created_campaign_id}}\",\n  \"sample_label\": \"ECH-2026-001\",\n  \"status\": \"TO_BE_COLLECTED\",\n  \"depth_min\": 0,\n  \"depth_max\": 20,\n  \"sampled_at\": null,\n  \"sent_to_lab_id\": null,\n  \"sent_at\": null,\n  \"tracking_number\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/samples",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "samples"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Liste des échantillons",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/samples",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "samples"
+              ],
+              "query": [
+                {
+                  "key": "sampling_unit_id",
+                  "value": "{{created_unit_point_id}}",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Détails d'un échantillon",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/samples/{{sample_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "samples",
+                "{{sample_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modifier un échantillon (ex: envoyé au labo)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"SENT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/samples/{{created_sample_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "samples",
+                "{{created_sample_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Supprimer un échantillon",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/samples/{{created_sample_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "samples",
+                "{{created_sample_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Import Lab Results",
+      "item": [
+        {
+          "name": "Créer un import de résultats",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "pm.environment.set(\"created_import_id\", jsonData.data.id);",
+                  "console.log(\"created_import_id:\", jsonData.data.id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lab_id\": \"{{created_laboratory_id}}\",\n  \"sampling_campaign_id\": \"{{created_campaign_id}}\",\n  \"filename\": \"resultats_lab_2026.csv\",\n  \"storage_location\": \"s3://my-bucket/soil-sampling/resultats_lab_2026.csv\",\n  \"storage_location_type\": \"S3\",\n  \"file_extension\": \"csv\",\n  \"data\": null,\n  \"import_status\": \"pending\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/soil-sampling/imports",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "soil-sampling",
+                "imports"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Liste des imports",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/soil-sampling/imports",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "soil-sampling",
+                "imports"
+              ],
+              "query": [
+                {
+                  "key": "lab_id",
+                  "value": "{{created_laboratory_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "sampling_campaign_id",
+                  "value": "{{created_campaign_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "import_status",
+                  "value": "pending",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Détails d'un import",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/soil-sampling/imports/{{created_import_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "soil-sampling",
+                "imports",
+                "{{created_import_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modifier un import",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"import_status\": \"processing\",\n  \"storage_location\": \"s3://my-bucket/soil-sampling/resultats_lab_2026.csv\",\n  \"storage_location_type\": \"S3\",\n  \"file_extension\": \"csv\",\n  \"imported_at\": \"2026-04-20T14:00:00Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/soil-sampling/imports/{{created_import_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "soil-sampling",
+                "imports",
+                "{{created_import_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Supprimer un import",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/soil-sampling/imports/{{created_import_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "soil-sampling",
+                "imports",
+                "{{created_import_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Lab Results",
+      "item": [
+        {
+          "name": "Créer un résultat",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "pm.environment.set(\"created_result_id\", jsonData.data.id);",
+                  "console.log(\"created_result_id:\", jsonData.data.id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sample_id\": \"{{created_sample_id}}\",\n  \"import_lab_result_raw_id\": null,\n  \"ph_water\": 6.5,\n  \"ph_buffer\": 6.3,\n  \"organic_matter_percent\": 3.8,\n  \"phosphorus_kg_ha\": 45.2,\n  \"potassium_kg_ha\": 180.0,\n  \"calcium_kg_ha\": 2100.0,\n  \"magnesium_kg_ha\": 210.0,\n  \"aluminum_ppm\": null,\n  \"phosphorus_saturation_index\": null,\n  \"cec_meq_100g\": 15.5,\n  \"boron_ppm\": null,\n  \"manganese_ppm\": null,\n  \"copper_ppm\": null,\n  \"zinc_ppm\": null,\n  \"iron_ppm\": null,\n  \"sulfur_ppm\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/results",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "results"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Liste des résultats",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/results",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "results"
+              ],
+              "query": [
+                {
+                  "key": "sample_id",
+                  "value": "{{created_sample_id}}",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Détails d'un résultat",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/results/{{created_result_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "results",
+                "{{created_result_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modifier un résultat",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"boron_ppm\": 670,\n  \"unit\": \"-\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/results/{{created_result_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "results",
+                "{{created_result_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Supprimer un résultat",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{api_version}}/soil-sampling/results/{{created_result_id}}",
+              "host": [
+                "{{base_url}}{{api_version}}"
+              ],
+              "path": [
+                "soil-sampling",
+                "results",
+                "{{created_result_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Response has access_token\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('access_token');",
+              "    pm.environment.set(\"access_token\", jsonData.access_token);",
+              "    console.log(\"Token sauvegardé :\", jsonData.access_token.substring(0, 20) + \"...\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"{{test_password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}{{api_version}}/auth/login",
+          "host": [
+            "{{base_url}}{{api_version}}"
+          ],
+          "path": [
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
