@@ -1,4 +1,4 @@
-"""Schema discovery using PostgreSQL information_schema queries."""
+"""Schema discovery using pg_catalog (much faster than information_schema)."""
 
 from __future__ import annotations
 
@@ -11,11 +11,12 @@ def get_tables(conn: DBConnector, schema: str = "public") -> list[str]:
     """Return all user table names in *schema*, sorted alphabetically."""
     rows = conn.execute_query(
         """
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = %s
-          AND table_type = 'BASE TABLE'
-        ORDER BY table_name
+        SELECT c.relname AS table_name
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = %s
+          AND c.relkind = 'r'
+        ORDER BY c.relname
         """,
         (schema,),
     )
@@ -30,30 +31,37 @@ def get_columns(conn: DBConnector, table: str, schema: str = "public") -> list[d
     rows = conn.execute_query(
         """
         SELECT
-            c.column_name          AS name,
-            c.data_type            AS data_type,
-            c.is_nullable          AS is_nullable,
-            c.column_default       AS column_default,
-            c.ordinal_position     AS ordinal_position,
-            CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_pk
-        FROM information_schema.columns c
+            a.attname                                        AS name,
+            pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+            NOT a.attnotnull                                 AS is_nullable,
+            pg_get_expr(d.adbin, d.adrelid)                  AS column_default,
+            a.attnum                                         AS ordinal_position,
+            COALESCE(pk.is_pk, false)                        AS is_pk
+        FROM pg_catalog.pg_attribute a
+        JOIN pg_catalog.pg_class c     ON c.oid = a.attrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_catalog.pg_attrdef d
+               ON d.adrelid = a.attrelid AND d.adnum = a.attnum
         LEFT JOIN (
-            SELECT ku.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage ku
-              ON tc.constraint_name = ku.constraint_name
-             AND tc.table_schema    = ku.table_schema
-             AND tc.table_name      = ku.table_name
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-              AND tc.table_name   = %s
-              AND tc.table_schema = %s
-        ) pk ON c.column_name = pk.column_name
-        WHERE c.table_name   = %s
-          AND c.table_schema = %s
-        ORDER BY c.ordinal_position
+            SELECT unnest(ix.indkey) AS attnum, true AS is_pk
+            FROM pg_catalog.pg_index ix
+            JOIN pg_catalog.pg_class ci ON ci.oid = ix.indrelid
+            JOIN pg_catalog.pg_namespace ni ON ni.oid = ci.relnamespace
+            WHERE ix.indisprimary
+              AND ci.relname = %s
+              AND ni.nspname = %s
+        ) pk ON pk.attnum = a.attnum
+        WHERE c.relname = %s
+          AND n.nspname = %s
+          AND a.attnum  > 0
+          AND NOT a.attisdropped
+        ORDER BY a.attnum
         """,
         (table, schema, table, schema),
     )
+    # Normalize is_nullable to match previous interface ("YES"/"NO" → bool)
+    for r in rows:
+        r["is_nullable"] = "YES" if r["is_nullable"] else "NO"
     return rows
 
 
@@ -67,19 +75,20 @@ def get_foreign_keys(
     rows = conn.execute_query(
         """
         SELECT
-            kcu.column_name                  AS column_name,
-            ccu.table_name                   AS ref_table,
-            ccu.column_name                  AS ref_column
-        FROM information_schema.table_constraints        tc
-        JOIN information_schema.key_column_usage         kcu
-          ON tc.constraint_name = kcu.constraint_name
-         AND tc.table_schema    = kcu.table_schema
-        JOIN information_schema.constraint_column_usage  ccu
-          ON ccu.constraint_name = tc.constraint_name
-         AND ccu.table_schema    = tc.table_schema
-        WHERE tc.constraint_type = 'FOREIGN KEY'
-          AND tc.table_name   = %s
-          AND tc.table_schema = %s
+            a.attname        AS column_name,
+            cf.relname       AS ref_table,
+            af.attname       AS ref_column
+        FROM pg_catalog.pg_constraint con
+        JOIN pg_catalog.pg_class c     ON c.oid = con.conrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_catalog.pg_class cf    ON cf.oid = con.confrelid
+        JOIN pg_catalog.pg_attribute a
+               ON a.attrelid = con.conrelid  AND a.attnum = ANY(con.conkey)
+        JOIN pg_catalog.pg_attribute af
+               ON af.attrelid = con.confrelid AND af.attnum = ANY(con.confkey)
+        WHERE con.contype = 'f'
+          AND c.relname  = %s
+          AND n.nspname  = %s
         """,
         (table, schema),
     )
@@ -94,12 +103,12 @@ def get_foreign_keys(
 
 
 def get_row_count(conn: DBConnector, table: str, schema: str = "public") -> int:
-    """Return the approximate row count for *table* using pg_class stats."""
+    """Return the approximate row count using pg_class stats."""
     rows = conn.execute_query(
         """
-        SELECT reltuples::bigint AS estimate
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
+        SELECT c.reltuples::bigint AS estimate
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
         WHERE c.relname = %s
           AND n.nspname = %s
         """,
@@ -107,7 +116,6 @@ def get_row_count(conn: DBConnector, table: str, schema: str = "public") -> int:
     )
     if rows:
         estimate = rows[0]["estimate"]
-        # Fall back to exact count when estimate is 0 (table not yet analyzed)
         if estimate <= 0:
             exact = conn.execute_query(
                 f'SELECT COUNT(*) AS cnt FROM "{schema}"."{table}"'
