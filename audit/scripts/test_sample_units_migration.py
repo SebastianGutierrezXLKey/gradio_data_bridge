@@ -91,6 +91,10 @@ API_LOGIN_ENDPOINT = os.getenv("API_LOGIN_ENDPOINT", "/auth/login")
 API_LOGIN_EMAIL = os.getenv("API_LOGIN_EMAIL", "")
 API_LOGIN_PASSWORD = os.getenv("API_LOGIN_PASSWORD", "")
 
+# --- Service Account Credentials ---
+API_CLIENT_ID = os.getenv("API_CLIENT_ID", "")
+API_CLIENT_SECRET = os.getenv("API_CLIENT_SECRET", "")
+
 UNITS_ENDPOINT = "/soil-sampling/units"
 SOURCE_TABLE = "xlkey.sampling_zone_2"
 ACCOUNTS_TABLE = "xlkey.accounts"
@@ -110,7 +114,7 @@ METADATA_EXCLUDE_COLS = {"zone_name_2", "geometry"}
 # ---------------------------------------------------------------------------
 
 def api_session_from_token(token: str) -> requests.Session:
-    """Build an authenticated session from a pre-existing Bearer token (service account)."""
+    """Build an authenticated session from a pre-existing Bearer token."""
     session = requests.Session()
     session.headers.update({
         "Content-Type": "application/json",
@@ -118,6 +122,29 @@ def api_session_from_token(token: str) -> requests.Session:
         "Authorization": f"Bearer {token}",
     })
     return session
+
+
+def api_session_from_client_credentials(client_id: str, client_secret: str) -> requests.Session:
+    """Obtain a Bearer token via the service account endpoint and return an authenticated session."""
+    url = f"{API_BASE_URL}{API_VERSION}/service-accounts/token"
+    resp = requests.post(
+        url,
+        json={"client_id": client_id, "client_secret": client_secret},
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    token = (
+        data.get("access_token")
+        or data.get("token")
+        or (data.get("data") or {}).get("access_token")
+        or (data.get("data") or {}).get("token")
+    )
+    if not token:
+        raise ValueError(f"access_token not found in service account response. Keys: {list(data.keys())}")
+    print_info("Service account token obtained")
+    return api_session_from_token(token)
 
 
 def api_login(email: str, password: str) -> requests.Session:
@@ -499,13 +526,20 @@ Examples:
     print_step("API - Authenticating")
     try:
         if token:
+            # Priority 1: fixed Bearer token
             session = api_session_from_token(token)
-            print_success(f"Using service account token for {API_BASE_URL}")
+            print_success(f"Using fixed Bearer token for {API_BASE_URL}")
+        elif API_CLIENT_ID and API_CLIENT_SECRET:
+            # Priority 2: service account credentials
+            print_info("Fetching service account token...")
+            session = api_session_from_client_credentials(API_CLIENT_ID, API_CLIENT_SECRET)
+            print_success(f"Authenticated via service account for {API_BASE_URL}")
         else:
+            # Priority 3: email/password login
             if not email:
-                print_error("API email is required. Use --email, --token, or set API_LOGIN_EMAIL / API_TOKEN in .env")
+                print_error("No auth method configured. Set API_TOKEN, API_CLIENT_ID/SECRET, or API_LOGIN_EMAIL in .env")
             if not password:
-                print_error("API password is required. Use --password, --token, or set API_LOGIN_PASSWORD / API_TOKEN in .env")
+                print_error("API password is required. Use --password or set API_LOGIN_PASSWORD in .env")
             session = api_login(email, password)
             print_success(f"Authenticated to {API_BASE_URL}")
     except Exception as exc:
