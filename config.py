@@ -25,6 +25,17 @@ class DBDefaults:
     TARGET_SCHEMA: str = os.getenv("TARGET_SCHEMA", "public")
 
 
+class ApiDefaults:
+    """Default API connection values read from environment variables."""
+
+    BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000")
+    VERSION: str = os.getenv("API_VERSION", "/api/v1")
+    TOKEN: str = os.getenv("API_TOKEN", "")
+    LOGIN_ENDPOINT: str = os.getenv("API_LOGIN_ENDPOINT", "/auth/login")
+    LOGIN_EMAIL: str = os.getenv("API_LOGIN_EMAIL", "")
+    LOGIN_PASSWORD: str = os.getenv("API_LOGIN_PASSWORD", "")
+
+
 AUDIT_OUTPUT_DIR: Path = Path(os.getenv("AUDIT_OUTPUT_DIR", "/tmp/crossmigrate_audits"))
 AUDIT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

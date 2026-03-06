@@ -7,9 +7,11 @@ import pandas as pd
 
 MAX_COLS = 60  # Maximum number of source columns supported in the mapping UI
 
-from config import DBDefaults
+from api.writer import KNOWN_ENDPOINTS
+from config import ApiDefaults, DBDefaults
 from ui.callbacks import (
     build_column_mapping_ui,
+    handle_api_connect,
     handle_connect,
     load_distinct_values,
     load_more_rows,
@@ -75,6 +77,50 @@ def build_tab_connexion(app_state: gr.State) -> None:
                 app_state,
             ],
             outputs=[tgt["status"], app_state],
+        )
+
+        # ---- API configuration ----
+        gr.Markdown("---")
+        with gr.Accordion("🔌 Configuration API (mode écriture via API)", open=False):
+            gr.Markdown(
+                "Configurez ici le client API xlhub pour envoyer les données "
+                "via les endpoints REST au lieu d'un INSERT direct."
+            )
+            with gr.Row():
+                api_base_url = gr.Textbox(
+                    label="Base URL", value=ApiDefaults.BASE_URL, scale=3
+                )
+                api_version = gr.Textbox(
+                    label="Version API", value=ApiDefaults.VERSION, scale=1
+                )
+            api_token = gr.Textbox(
+                label="Token Bearer (si déjà obtenu)",
+                value=ApiDefaults.TOKEN,
+                type="password",
+                info="Laissez vide pour vous connecter via email/mot de passe ci-dessous.",
+            )
+            with gr.Row():
+                api_login_endpoint = gr.Textbox(
+                    label="Endpoint de login", value=ApiDefaults.LOGIN_ENDPOINT, scale=1
+                )
+                api_email = gr.Textbox(
+                    label="Email", value=ApiDefaults.LOGIN_EMAIL, scale=2
+                )
+                api_password = gr.Textbox(
+                    label="Mot de passe", value=ApiDefaults.LOGIN_PASSWORD,
+                    type="password", scale=2
+                )
+            api_connect_btn = gr.Button("🔑 Connecter / Tester l'API", variant="secondary")
+            api_status = gr.HTML('<span style="color:#888">— API non configurée</span>')
+
+        api_connect_btn.click(
+            fn=handle_api_connect,
+            inputs=[
+                api_base_url, api_version, api_token,
+                api_login_endpoint, api_email, api_password,
+                app_state,
+            ],
+            outputs=[api_status, app_state],
         )
 
 
@@ -368,17 +414,38 @@ def build_tab_migration(
     src_table_dd: gr.Dropdown,
     tgt_table_dd: gr.Dropdown,
 ) -> None:
+    endpoint_choices = [ep for ep in KNOWN_ENDPOINTS.keys()]
+    endpoint_labels = {ep: f"{info['label']}  ({ep})" for ep, info in KNOWN_ENDPOINTS.items()}
+
     with gr.Tab("4 · Migration"):
         with gr.Row():
             mode_radio = gr.Radio(
                 choices=["Dry Run", "Réel"],
                 value="Dry Run",
                 label="Mode de migration",
-                info="'Dry Run' simule la migration sans écrire en base.",
+                info="'Dry Run' simule sans aucune écriture.",
             )
+            write_mode_radio = gr.Radio(
+                choices=["Direct DB", "Via API"],
+                value="Direct DB",
+                label="Mode d'écriture",
+                info="'Via API' utilise les endpoints REST xlhub.",
+            )
+
+        # API endpoint selector (shown only in Via API mode)
+        with gr.Row(visible=False) as api_endpoint_row:
+            api_endpoint_dd = gr.Dropdown(
+                label="Endpoint API cible",
+                choices=[(v, k) for k, v in endpoint_labels.items()],
+                value=endpoint_choices[0] if endpoint_choices else None,
+                interactive=True,
+                scale=3,
+            )
+
+        with gr.Row():
             batch_slider = gr.Slider(
                 minimum=10, maximum=1000, value=100, step=10,
-                label="Taille de lot (lignes par transaction)",
+                label="Taille de lot",
             )
             on_error_radio = gr.Radio(
                 choices=["Continuer", "Arrêter"],
@@ -395,22 +462,40 @@ def build_tab_migration(
             audit_file = gr.File(label="📄 Télécharger le fichier d'audit JSON", interactive=False)
             summary_md = gr.Markdown("")
 
-        def _run_and_show(src_table, tgt_table, mode, batch, on_err, state, progress=gr.Progress()):
+        # Show/hide API endpoint row based on write mode
+        def _toggle_api_row(write_mode):
+            return gr.update(visible=(write_mode == "Via API"))
+
+        write_mode_radio.change(
+            fn=_toggle_api_row,
+            inputs=[write_mode_radio],
+            outputs=[api_endpoint_row],
+        )
+
+        def _run_and_show(
+            src_table, tgt_table, mode, write_mode, api_endpoint,
+            batch, on_err, state, progress=gr.Progress()
+        ):
             logs, audit_path = run_migration(
-                src_table, tgt_table, mode, batch, on_err, state, progress
+                src_table, tgt_table, mode, write_mode, api_endpoint,
+                batch, on_err, state, progress
             )
             if audit_path:
                 return (
                     logs,
-                    gr.Row(visible=True),
+                    gr.update(visible=True),
                     audit_path,
                     f"✅ Migration terminée. Fichier d'audit : `{audit_path}`",
                 )
-            return logs, gr.Row(visible=False), None, ""
+            return logs, gr.update(visible=False), None, ""
 
         run_btn.click(
             fn=_run_and_show,
-            inputs=[src_table_dd, tgt_table_dd, mode_radio, batch_slider, on_error_radio, app_state],
+            inputs=[
+                src_table_dd, tgt_table_dd,
+                mode_radio, write_mode_radio, api_endpoint_dd,
+                batch_slider, on_error_radio, app_state,
+            ],
             outputs=[log_box, result_row, audit_file, summary_md],
             show_progress="full",
         )

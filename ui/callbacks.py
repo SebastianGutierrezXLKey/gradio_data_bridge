@@ -8,8 +8,9 @@ from typing import Any
 import gradio as gr
 import pandas as pd
 
+from api.client import ApiClient
 from audit.logger import AuditLogger
-from config import DBDefaults, DEFAULT_PREVIEW_ROWS
+from config import ApiDefaults, DBDefaults, DEFAULT_PREVIEW_ROWS
 from database.connector import DBConnector
 from database.reader import read_distinct_values, read_rows
 from database.schema import (
@@ -208,66 +209,114 @@ def validate_current_mapping(
 
 
 # ---------------------------------------------------------------------------
+# Tab 1 — API connection
+# ---------------------------------------------------------------------------
+
+def handle_api_connect(
+    base_url: str,
+    api_version: str,
+    token: str,
+    login_endpoint: str,
+    email: str,
+    password: str,
+    state: dict,
+) -> tuple[str, dict]:
+    """Configure the API client and return (html_badge, updated_state)."""
+    client = ApiClient()
+    client.configure(base_url, api_version, token)
+
+    if not token and email:
+        success, message = client.login(login_endpoint, email, password)
+    else:
+        success, message = client.test_connection()
+
+    badge = connection_badge(success, message)
+    if success:
+        state = dict(state)
+        state["api_client"] = client
+    return badge, state
+
+
+# ---------------------------------------------------------------------------
 # Tab 4 — Migration
 # ---------------------------------------------------------------------------
 
 def run_migration(
     source_table: str,
     target_table: str,
-    mode: str,  # "Dry Run" | "Réel"
+    mode: str,           # "Dry Run" | "Réel"
+    write_mode: str,     # "Direct DB" | "Via API"
+    api_endpoint: str,   # e.g. "/soil-sampling/imports"
     batch_size: int,
-    on_error: str,  # "Continuer" | "Arrêter"
+    on_error: str,       # "Continuer" | "Arrêter"
     state: dict,
     progress: gr.Progress = gr.Progress(),
 ) -> tuple[str, str | None]:
-    """Execute the migration and return (log_text, audit_file_path).
-
-    Designed for use with gr.Button.click(..., show_progress="full").
-    """
+    """Execute the migration and return (log_text, audit_file_path)."""
     src_conn: DBConnector | None = state.get("source_conn")
-    tgt_conn: DBConnector | None = state.get("target_conn")
     src_schema = state.get("source_schema", "public")
-    tgt_schema = state.get("target_schema", "public")
-
-    if not src_conn or not tgt_conn:
-        return "❌ Connexions non établies. Allez à l'onglet Connexion.", None
-    if not source_table or not target_table:
-        return "❌ Veuillez sélectionner les tables source et cible.", None
 
     dry_run = (mode == "Dry Run")
+    use_api = (write_mode == "Via API") and not dry_run
     config = build_mapping_config(state)
 
+    if not src_conn:
+        return "❌ Connexion source non établie. Allez à l'onglet Connexion.", None
+    if not source_table:
+        return "❌ Veuillez sélectionner la table source.", None
     if not config.column_map:
         return "❌ Aucun mapping de colonnes configuré. Allez à l'onglet Mapping.", None
 
+    # Validate write target
+    if use_api:
+        api_client = state.get("api_client")
+        if not api_client or not api_client.is_configured():
+            return "❌ Client API non configuré. Allez à l'onglet Connexion → section API.", None
+        if not api_endpoint:
+            return "❌ Veuillez sélectionner un endpoint API.", None
+        tgt_conn = None
+        tgt_schema = ""
+        target_label = f"API {api_endpoint}"
+    else:
+        tgt_conn: DBConnector | None = state.get("target_conn")
+        tgt_schema = state.get("target_schema", "public")
+        api_client = None
+        target_label = f"{state.get('target_db', '?')}.{tgt_schema}.{target_table}"
+        if not dry_run and not tgt_conn:
+            return "❌ Connexion cible non établie.", None
+        if not target_table:
+            return "❌ Veuillez sélectionner la table cible.", None
+
     audit = AuditLogger()
     migration_id = audit.start_session(
-        "dry_run" if dry_run else "real",
+        "dry_run" if dry_run else ("api" if use_api else "real"),
         src_conn.db_name,
-        tgt_conn.db_name,
+        state.get("target_db", api_endpoint),
     )
 
     engine = MigrationEngine(
         source_conn=src_conn,
-        target_conn=tgt_conn,
         mapping_config=config,
         audit_logger=audit,
         batch_size=int(batch_size),
         dry_run=dry_run,
         on_error="continue" if on_error == "Continuer" else "abort",
+        target_conn=tgt_conn,
+        api_client=api_client,
+        api_endpoint=api_endpoint,
     )
 
     log_lines: list[str] = [
         f"=== Migration {migration_id} ===",
-        f"Mode : {'DRY RUN (simulation)' if dry_run else 'RÉEL'}",
+        f"Mode : {'DRY RUN (simulation)' if dry_run else write_mode.upper()}",
         f"Source : {src_conn.db_name}.{src_schema}.{source_table}",
-        f"Cible  : {tgt_conn.db_name}.{tgt_schema}.{target_table}",
+        f"Cible  : {target_label}",
         f"Taille de lot : {batch_size}",
         "",
     ]
 
     last_current, last_total = 0, 1
-    for update in engine.run(source_table, src_schema, target_table, tgt_schema):
+    for update in engine.run(source_table, src_schema, target_table or "", tgt_schema or ""):
         log_lines.append(str(update))
         last_current = update.current
         last_total = max(update.total, 1)
