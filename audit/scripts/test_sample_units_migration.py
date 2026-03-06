@@ -115,7 +115,7 @@ def api_login(email: str, password: str) -> requests.Session:
         "Content-Type": "application/json",
         "Accept": "application/json",
     })
-    url = f"{API_BASE_URL}{API_LOGIN_ENDPOINT}"
+    url = f"{API_BASE_URL}{API_VERSION}{API_LOGIN_ENDPOINT}"
     resp = session.post(url, json={"email": email, "password": password}, timeout=10)
     resp.raise_for_status()
     data = resp.json()
