@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -81,7 +82,7 @@ LAB_CONTACT_EMAIL = os.getenv("LAB_CONTACT_EMAIL", "info@agro-enviro-lab.com")
 LAB_CONTACT_PHONE = os.getenv("LAB_CONTACT_PHONE", "+1-866-288-1079")
 LAB_COUNTRY = os.getenv("LAB_COUNTRY", "Canada")
 
-DEFAULT_RECORD_FILE = Path(__file__).parent / "data" / "laboratory_record.json"
+OUTPUT_DIR = Path(__file__).parent / "output"
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +185,7 @@ def downgrade(session: requests.Session, record_file: Path) -> None:
     print_step("DOWNGRADE - Loading Record File")
 
     if not record_file.exists():
-        print_error(f"Record file not found: {record_file}. Run upgrade first.")
+        print_error(f"Record file not found: {record_file}. Run upgrade first or specify --record-file.")
 
     with open(record_file, encoding="utf-8") as f:
         record = json.load(f)
@@ -247,11 +248,22 @@ Examples:
     parser.add_argument(
         "--record-file",
         type=Path,
-        default=DEFAULT_RECORD_FILE,
-        help=f"Path to store the created lab record (default: {DEFAULT_RECORD_FILE})",
+        default=None,
+        help="Path to store the created lab record. Upgrade: auto-generated with timestamp in output/. Downgrade: defaults to latest file in output/.",
     )
 
     args = parser.parse_args()
+
+    # Resolve record file path
+    if args.record_file is None:
+        if args.downgrade:
+            candidates = sorted(OUTPUT_DIR.glob("laboratory_record_*.json"), reverse=True)
+            if not candidates:
+                print_error(f"No record file found in {OUTPUT_DIR}. Run upgrade first.")
+            args.record_file = candidates[0]
+        else:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            args.record_file = OUTPUT_DIR / f"laboratory_record_{ts}.json"
 
     print_step("SETUP - Configuration")
     print(f"   Mode: {'DOWNGRADE' if args.downgrade else 'UPGRADE'}")

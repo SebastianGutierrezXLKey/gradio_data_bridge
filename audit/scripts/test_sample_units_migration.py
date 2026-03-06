@@ -318,8 +318,13 @@ async def downgrade(
 ) -> None:
     print_step("DOWNGRADE - Loading Mapping File")
 
-    if not mapping_file.exists():
-        print_error(f"Mapping file not found: {mapping_file}. Run upgrade first.")
+    if mapping_file is None or not mapping_file.exists():
+        output_dir = Path(__file__).parent / "output"
+        candidates = sorted(output_dir.glob("sample_units_mapping_*.json"), reverse=True)
+        if not candidates:
+            print_error(f"No mapping file found in {output_dir}. Run upgrade first.")
+        mapping_file = candidates[0]
+        print_info(f"Using latest mapping file: {mapping_file.name}")
 
     with open(mapping_file, encoding="utf-8") as f:
         mapping: list[dict] = json.load(f)
@@ -416,8 +421,8 @@ Examples:
     parser.add_argument(
         "--mapping-file",
         type=Path,
-        default=Path(__file__).parent / "data" / "sample_units_mapping.json",
-        help="Path to the mapping JSON file (default: data/sample_units_mapping.json)",
+        default=None,
+        help="Path to the mapping JSON file. Upgrade: auto-generated with timestamp in output/. Downgrade: defaults to latest file in output/.",
     )
 
     args = parser.parse_args()
@@ -430,7 +435,12 @@ Examples:
             print(f"   Filter: {args.col_name} ILIKE '%{args.value}%'")
         else:
             print("   Filter: none (all zones)")
-    print(f"   Mapping file: {args.mapping_file}")
+    # Resolve mapping file path (auto-generate timestamped name for upgrade)
+    if args.mapping_file is None and not args.downgrade and not args.dry_run:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args.mapping_file = Path(__file__).parent / "output" / f"sample_units_mapping_{ts}.json"
+
+    print(f"   Mapping file: {args.mapping_file or '(auto — latest in output/)'}")
     print(f"   API: {API_BASE_URL}{API_VERSION}{UNITS_ENDPOINT}")
 
     # Resolve credentials
