@@ -94,7 +94,7 @@ UNITS_ENDPOINT = "/soil-sampling/units"
 SOURCE_TABLE = "xlkey.sampling_zone_2"
 ACCOUNTS_TABLE = "xlkey.accounts"
 
-# Source table columns (excluding raw GEOMETRY which is handled via ST_AsGeoJSON)
+# Source table columns (excluding raw geometry which is handled via ST_AsGeoJSON)
 ZONE_COLUMNS = [
     "id", '"FARM_ID"', '"FIELD_ID"', "site_id", '"FIELD_NAME"',
     '"SOURCE"', "zone_name", "zone_name_2", "year_key",
@@ -198,10 +198,10 @@ async def count_zones(
 async def fetch_zones(
     conn: asyncpg.Connection, col_name: str, value: str | None
 ) -> list[dict]:
-    """Fetch sampling zones, converting GEOMETRY to GeoJSON."""
+    """Fetch sampling zones, converting geometry to GeoJSON."""
     col_list = ", ".join(ZONE_COLUMNS)
     select_clause = (
-        f'{col_list}, ST_AsGeoJSON("GEOMETRY")::json AS geometry'
+        f'{col_list}, ST_AsGeoJSON("geometry")::json AS geometry'
     )
 
     if value:
