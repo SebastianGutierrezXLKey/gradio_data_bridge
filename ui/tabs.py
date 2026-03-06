@@ -5,6 +5,8 @@ from __future__ import annotations
 import gradio as gr
 import pandas as pd
 
+MAX_COLS = 60  # Maximum number of source columns supported in the mapping UI
+
 from config import DBDefaults
 from ui.callbacks import (
     build_column_mapping_ui,
@@ -172,31 +174,40 @@ def build_tab_mapping(
             "et la table cible, puis mappez les valeurs des clés étrangères."
         )
 
-        load_mapping_btn = gr.Button("📋 Charger le mapping pour les tables sélectionnées", variant="primary")
+        load_mapping_btn = gr.Button(
+            "📋 Charger le mapping pour les tables sélectionnées", variant="primary"
+        )
 
-        # Dynamic area for column mapping dropdowns
-        mapping_area = gr.Column(visible=False)
-
-        # State that stores the list of source columns (for save callback)
+        # Session state
         src_cols_state = gr.State(value=[])
-        tgt_choices_state = gr.State(value=[])
-        fk_cols_state = gr.State(value=[])
-        fk_info_state = gr.State(value=[])
+
+        # ----------------------------------------------------------------
+        # Pre-create MAX_COLS dropdown rows (hidden by default)
+        # Each row: source column label + target column dropdown
+        # ----------------------------------------------------------------
+        mapping_area = gr.Column(visible=False)
+        col_rows: list[gr.Row] = []
+        col_dropdowns: list[gr.Dropdown] = []
 
         with mapping_area:
             gr.Markdown("### Mapping des colonnes")
             gr.Markdown(
-                "Pour chaque colonne source, choisissez la colonne cible correspondante "
-                "ou '— Ne pas migrer —' pour l'exclure."
-            )
-            mapping_table = gr.Dataframe(
-                label="Configuration du mapping (éditez la colonne 'Colonne cible')",
-                headers=["Colonne source", "Colonne cible"],
-                datatype=["str", "str"],
-                interactive=True,
-                row_count=(1, "dynamic"),
+                "Pour chaque colonne source, sélectionnez la colonne cible "
+                "dans la liste déroulante, ou choisissez **— Ne pas migrer —** pour l'exclure."
             )
 
+            for i in range(MAX_COLS):
+                with gr.Row(visible=False) as row:
+                    dd = gr.Dropdown(
+                        label=f"col_{i}",
+                        choices=[],
+                        interactive=True,
+                        scale=1,
+                    )
+                col_rows.append(row)
+                col_dropdowns.append(dd)
+
+            # ---- FK section ----
             gr.Markdown("### Clés étrangères")
             fk_display = gr.Markdown("*Aucune clé étrangère détectée*")
 
@@ -218,10 +229,14 @@ def build_tab_mapping(
                         interactive=True,
                         row_count=(1, "dynamic"),
                     )
-                    save_fk_mapping_btn = gr.Button("💾 Sauvegarder ce mapping de valeurs", size="sm")
+                    save_fk_mapping_btn = gr.Button(
+                        "💾 Sauvegarder ce mapping de valeurs", size="sm"
+                    )
                     fk_save_status = gr.Markdown("")
 
-            save_col_mapping_btn = gr.Button("💾 Sauvegarder le mapping des colonnes", variant="secondary")
+            save_col_mapping_btn = gr.Button(
+                "💾 Sauvegarder le mapping des colonnes", variant="secondary"
+            )
             validate_btn = gr.Button("✅ Valider la configuration", variant="primary")
             validation_result = gr.Markdown("")
 
@@ -231,72 +246,73 @@ def build_tab_mapping(
                 src_table, tgt_table, state
             )
             if not src_names:
+                empty_row_updates = []
+                for _ in range(MAX_COLS):
+                    empty_row_updates.append(gr.update(visible=False))
+                    empty_row_updates.append(gr.update(label="", choices=[], value=None))
                 return (
-                    gr.Column(visible=False),
-                    src_names, tgt_choices, fk_cols, fk_info,
-                    pd.DataFrame(),
-                    "*Aucune clé étrangère*",
-                    gr.Dropdown(choices=[]),
+                    [gr.update(visible=False), src_names]
+                    + empty_row_updates
+                    + ["*Aucune clé étrangère*", gr.update(choices=[])]
                 )
 
-            # Build initial mapping dataframe (source col | empty target)
             existing_map = state.get("column_map", {})
-            rows = []
-            for col in src_names:
-                tgt = existing_map.get(col, "")
-                if tgt is None:
-                    tgt = "— Ne pas migrer —"
-                rows.append([col, tgt or ""])
-            df = pd.DataFrame(rows, columns=["Colonne source", "Colonne cible"])
+            fk_md = (
+                "**Clés étrangères détectées :**\n"
+                + "\n".join(
+                    f"  • `{fk['column']}` → `{fk['ref_table']}.{fk['ref_column']}`"
+                    for fk in fk_info
+                )
+                if fk_info
+                else "*Aucune clé étrangère détectée.*"
+            )
 
-            fk_md = "**Clés étrangères détectées :**\n" + "\n".join(
-                f"  • `{fk['column']}` → `{fk['ref_table']}.{fk['ref_column']}`"
-                for fk in fk_info
-            ) if fk_info else "*Aucune clé étrangère détectée.*"
+            row_updates = []
+            for i in range(MAX_COLS):
+                if i < len(src_names):
+                    col = src_names[i]
+                    existing = existing_map.get(col)
+                    val = "— Ne pas migrer —" if existing is None else (existing or tgt_choices[1] if len(tgt_choices) > 1 else "")
+                    row_updates.append(gr.update(visible=True))
+                    row_updates.append(gr.update(label=col, choices=tgt_choices, value=val))
+                else:
+                    row_updates.append(gr.update(visible=False))
+                    row_updates.append(gr.update(label=f"col_{i}", choices=[], value=None))
 
             return (
-                gr.Column(visible=True),
-                src_names, tgt_choices, fk_cols, fk_info,
-                df,
-                fk_md,
-                gr.Dropdown(choices=fk_cols, interactive=bool(fk_cols)),
+                [gr.update(visible=True), src_names]
+                + row_updates
+                + [fk_md, gr.update(choices=fk_cols, interactive=bool(fk_cols))]
             )
 
         load_mapping_btn.click(
             fn=_load_mapping,
             inputs=[src_table_dd, tgt_table_dd, app_state],
-            outputs=[
-                mapping_area,
-                src_cols_state, tgt_choices_state, fk_cols_state, fk_info_state,
-                mapping_table,
-                fk_display,
-                fk_col_selector,
-            ],
+            outputs=(
+                [mapping_area, src_cols_state]
+                + [item for pair in zip(col_rows, col_dropdowns) for item in pair]
+                + [fk_display, fk_col_selector]
+            ),
         )
 
         # ---- Save column mapping ----
-        def _save_col_mapping(df_data, state):
-            if df_data is None or (hasattr(df_data, "empty") and df_data.empty):
+        def _save_col_mapping(src_cols, state, *dropdown_values):
+            if not src_cols:
                 return state, "⚠ Aucun mapping à sauvegarder."
-            if isinstance(df_data, pd.DataFrame):
-                rows = df_data.values.tolist()
-            else:
-                rows = df_data
-            source_cols = [r[0] for r in rows if r[0]]
-            target_vals = [r[1] if len(r) > 1 else "" for r in rows if r[0]]
-            new_state = save_column_mapping(source_cols, target_vals, state)
-            return new_state, f"✅ Mapping sauvegardé pour {len(source_cols)} colonne(s)."
+            targets = list(dropdown_values[: len(src_cols)])
+            new_state = save_column_mapping(src_cols, targets, state)
+            return new_state, f"✅ Mapping sauvegardé pour {len(src_cols)} colonne(s)."
 
         save_col_mapping_btn.click(
             fn=_save_col_mapping,
-            inputs=[mapping_table, app_state],
+            inputs=[src_cols_state, app_state] + col_dropdowns,
             outputs=[app_state, validation_result],
         )
 
         # ---- Load FK distinct values ----
         def _load_fk_values(src_table, fk_col, state):
             if not fk_col:
-                return gr.Column(visible=False), pd.DataFrame()
+                return gr.update(visible=False), pd.DataFrame()
             pairs = load_distinct_values(src_table, fk_col, state)
             existing_vmap = state.get("value_maps", {}).get(fk_col, {})
             rows = [
@@ -304,7 +320,7 @@ def build_tab_mapping(
                 for val, count in pairs
             ]
             df = pd.DataFrame(rows, columns=["Valeur source", "Compteur", "Valeur cible"])
-            return gr.Column(visible=True), df
+            return gr.update(visible=True), df
 
         load_fk_values_btn.click(
             fn=_load_fk_values,
@@ -321,7 +337,11 @@ def build_tab_mapping(
             else:
                 rows = df_data
             src_vals = [str(r[0]) for r in rows if r[0] is not None]
-            tgt_vals = [str(r[2]) if len(r) > 2 and r[2] is not None else "" for r in rows if r[0] is not None]
+            tgt_vals = [
+                str(r[2]) if len(r) > 2 and r[2] is not None else ""
+                for r in rows
+                if r[0] is not None
+            ]
             new_state, msg = save_value_mapping(fk_col, src_vals, tgt_vals, state)
             return new_state, f"✅ {msg}"
 
