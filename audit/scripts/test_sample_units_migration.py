@@ -150,7 +150,12 @@ def make_serializable(value: Any) -> Any:
 
 def build_unit_payload(row: dict) -> dict:
     """Convert a source DB row into a POST /soil-sampling/units payload."""
-    geometry = row.get("geometry")  # already a dict via ST_AsGeoJSON::json
+    geometry = row.get("geometry")
+    if isinstance(geometry, str):
+        try:
+            geometry = json.loads(geometry)
+        except (json.JSONDecodeError, TypeError):
+            geometry = None
     name = row.get("zone_name_2")
 
     metadata: dict[str, Any] = {}
@@ -264,7 +269,7 @@ async def upgrade(
             print_info(
                 f"[{i}/{len(zones)}] Would POST source_id={source_id} "
                 f"name={payload.get('name')!r} "
-                f"geometry_type={payload.get('geometry', {}).get('type') if payload.get('geometry') else 'NULL'}"
+                f"geometry_type={payload['geometry'].get('type') if isinstance(payload.get('geometry'), dict) else ('present' if payload.get('geometry') else 'NULL')}"
             )
             succeeded += 1
             continue
