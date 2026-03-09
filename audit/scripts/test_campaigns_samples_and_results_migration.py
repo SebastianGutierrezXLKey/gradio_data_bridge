@@ -4,7 +4,7 @@ Script to migrate sampling campaigns, samples, and lab results to the xlhub API.
 
 Reads rows from xlkey.temp_analyses and creates, in sequence:
   1. Sampling campaigns  (POST /soil-sampling/campaigns)
-  2. Lab result imports  (POST /soil-sampling/import)
+  2. Lab result imports  (POST /soil-sampling/imports)
   3. Samples             (POST /soil-sampling/samples)
   4. Sample lab results  (POST /soil-sampling/sample-lab-results)
 
@@ -380,7 +380,7 @@ def post_import(
         "import_status": "PENDING",
         "imported_at": imported_at,
     }
-    url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/import"
+    url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/imports"
     resp = session.post(url, json=payload, timeout=30)
     if not resp.ok:
         raise RuntimeError(f"Import POST failed {resp.status_code}: {resp.text}")
@@ -623,7 +623,7 @@ def downgrade(session: requests.Session, output_file: Path) -> None:
     print_step("DOWNGRADE - Deleting imports")
     for import_id in deleted_imports:
         try:
-            url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/import/{import_id}"
+            url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/imports/{import_id}"
             resp = session.delete(url, timeout=15)
             resp.raise_for_status()
             print_info(f"Import {import_id} deleted")
