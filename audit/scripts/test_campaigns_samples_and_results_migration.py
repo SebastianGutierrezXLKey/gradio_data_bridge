@@ -313,8 +313,11 @@ def to_date_str(value: Any) -> str | None:
         return value.date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
-    # Try parsing a string
-    s = str(value)
+    s = str(value).strip()
+    # YYYYMMDD → YYYY-MM-DD
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+    # Truncate datetime ISO string to date part
     return s[:10] if len(s) >= 10 else s
 
 
@@ -346,7 +349,10 @@ def post_campaign(session: requests.Session, row: dict) -> str:
     url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/campaigns"
     resp = session.post(url, json=payload, timeout=30)
     if not resp.ok:
-        raise RuntimeError(f"Campaign POST failed {resp.status_code}: {resp.text}")
+        raise RuntimeError(
+            f"Campaign POST failed {resp.status_code}: {resp.text}\n"
+            f"  → start_date sent: {start_date!r} (type: {type(start_date).__name__})"
+        )
     data = resp.json()
     return str((data.get("data") or data).get("id"))
 
