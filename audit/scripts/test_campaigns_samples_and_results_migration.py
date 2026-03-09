@@ -377,7 +377,7 @@ def post_import(
         "storage_location_type": "S3",
         "file_extension": file_extension,
         "data": None,
-        "import_status": "PENDING",
+        "import_status": "pending",
         "imported_at": imported_at,
     }
     url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/imports"
