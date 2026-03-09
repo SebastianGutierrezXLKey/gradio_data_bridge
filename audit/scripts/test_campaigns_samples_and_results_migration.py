@@ -484,27 +484,33 @@ async def upgrade(
             continue
 
         try:
+            prefix = f"[{i}/{len(rows)}] source_id={source_id} ({unit_type})"
+
             # Step 2 — Campaign (dedup by key)
             if campaign_key not in campaign_cache:
                 campaign_id = post_campaign(session, row)
                 campaign_cache[campaign_key] = campaign_id
-                print_info(f"[{i}/{len(rows)}] Campaign created id={campaign_id}")
+                print_success(f"{prefix} Campaign CREATED  id={campaign_id}")
             else:
                 campaign_id = campaign_cache[campaign_key]
+                print_info(f"{prefix} Campaign REUSED   id={campaign_id}")
 
             # Step 3 — Import (dedup by FILENAME)
             if filename not in import_cache:
                 import_id = post_import(session, row, lab_id, campaign_id)
                 import_cache[filename] = import_id
-                print_info(f"[{i}/{len(rows)}] Import created id={import_id}")
+                print_success(f"{prefix} Import   CREATED  id={import_id}")
             else:
                 import_id = import_cache[filename]
+                print_info(f"{prefix} Import   REUSED   id={import_id}")
 
             # Step 4 — Sample
             sample_id = post_sample(session, row, sampling_unit_id, campaign_id)
+            print_success(f"{prefix} Sample   CREATED  id={sample_id}")
 
             # Step 5 — Lab result
             lab_result_id = post_lab_result(session, row, sample_id, import_id)
+            print_success(f"{prefix} LabResult CREATED id={lab_result_id}")
 
             results.append({
                 "source_id": source_id,
@@ -519,7 +525,7 @@ async def upgrade(
             succeeded += 1
 
             if i % 10 == 0 or i == len(rows):
-                print_success(f"[{i}/{len(rows)}] {succeeded} ok, {skipped} skipped, {failed} errors")
+                print_success(f"--- Progress: {succeeded} ok, {skipped} skipped, {failed} errors ---")
 
         except Exception as exc:
             failed += 1
