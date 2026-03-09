@@ -305,16 +305,29 @@ async def fetch_analyses(
 # API calls
 # ---------------------------------------------------------------------------
 
+def to_date_str(value: Any) -> str | None:
+    """Return a date-only string (YYYY-MM-DD) from a date, datetime, or ISO string."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    # Try parsing a string
+    s = str(value)
+    return s[:10] if len(s) >= 10 else s
+
+
 def post_campaign(session: requests.Session, row: dict) -> str:
     """Create a campaign and return its ID."""
     sampling_date = row.get("sampling_date")
     date_key = row.get("DATE_KEY")
 
     if sampling_date is not None:
-        start_date = to_iso(sampling_date)
+        start_date = to_date_str(sampling_date)
         name = f"Campaign {start_date}"
     else:
-        start_date = to_iso(date_key)
+        start_date = to_date_str(date_key)
         name = f"Campaign {date_key}"
 
     payload = {
