@@ -398,7 +398,7 @@ def post_sample(
     """Create a sample and return its ID."""
     sampling_date = row.get("sampling_date")
     date_key = row.get("DATE_KEY")
-    sampled_at = to_iso(sampling_date) if sampling_date is not None else to_iso(date_key)
+    sampled_at = to_iso(sampling_date) if sampling_date is not None else to_date_str(date_key)
     sent_to_lab_at = to_iso(row.get("INGESTED_AT"))
     sample_label = str(row.get("samp_name") or "").strip() or zone_name_2
 
