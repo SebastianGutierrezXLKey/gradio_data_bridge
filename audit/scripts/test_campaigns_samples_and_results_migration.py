@@ -263,6 +263,30 @@ def field_to_zone_name_2(field_value: str) -> str | None:
 # Pre-flight API lookups
 # ---------------------------------------------------------------------------
 
+def prefetch_campaigns(session: requests.Session) -> dict[str, str]:
+    """Fetch all existing campaigns and return a lookup dict {name → campaign_id}."""
+    url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/campaigns"
+    resp = session.get(url, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    items = data.get("data") or []
+    if not isinstance(items, list):
+        items = []
+    return {str(c.get("name", "")): str(c["id"]) for c in items if c.get("id")}
+
+
+def prefetch_imports(session: requests.Session) -> dict[str, str]:
+    """Fetch all existing imports and return a lookup dict {filename → import_id}."""
+    url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/imports"
+    resp = session.get(url, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    items = data.get("data") or []
+    if not isinstance(items, list):
+        items = []
+    return {str(imp.get("filename", "")): str(imp["id"]) for imp in items if imp.get("id")}
+
+
 def get_lab_id(session: requests.Session, lab_name: str) -> str:
     """Fetch the lab ID matching LAB_NAME from the API."""
     url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/laboratories"
@@ -456,13 +480,18 @@ async def upgrade(
     output_file: Path,
     dry_run: bool,
 ) -> None:
+    # Pre-fetch existing campaigns to avoid duplicates across runs
+    print_step("UPGRADE - Pre-fetching existing campaigns")
+    campaign_cache: dict[str, str] = prefetch_campaigns(session)  # name → campaign_id
+    print_success(f"Found {len(campaign_cache)} existing campaigns")
+
+    # Pre-fetch existing imports to avoid duplicates across runs
+    import_cache: dict[str, str] = prefetch_imports(session)  # filename → import_id
+    print_success(f"Found {len(import_cache)} existing imports")
+
     print_step("UPGRADE - Fetching source rows")
     rows = await fetch_analyses(conn, limit, filename_filter)
     print_success(f"Fetched {len(rows)} rows from {SOURCE_TABLE}")
-
-    # In-memory caches to deduplicate campaigns and imports
-    campaign_cache: dict[tuple, str] = {}   # (DATE_KEY, NO_DISPATCH, FILENAME) → campaign_id
-    import_cache: dict[str, str] = {}       # FILENAME → import_id
 
     results: list[dict] = []
     succeeded = 0
@@ -489,13 +518,11 @@ async def upgrade(
         unit_type = unit_entry.get("unit_type", "unknown")
 
         date_key = str(row.get("DATE_KEY") or "")
-        no_dispatch = str(row.get("NO_DISPATCH") or "")
         filename = str(row.get("FILENAME") or "")
-        campaign_key = (date_key, no_dispatch, filename)
+        sampling_date = row.get("sampling_date")
+        campaign_name = f"Campaign {to_date_str(sampling_date) or to_date_str(date_key) or date_key}"
 
         if dry_run:
-            sampling_date = row.get("sampling_date")
-            campaign_name = f"Campaign {to_iso(sampling_date) or date_key}"
             print_info(
                 f"[{i}/{len(rows)}] DRY RUN source_id={source_id} "
                 f"zone_name_2={zone_name_2!r} unit_id={sampling_unit_id} unit_type={unit_type} "
@@ -507,13 +534,13 @@ async def upgrade(
         try:
             prefix = f"[{i}/{len(rows)}] source_id={source_id} ({unit_type})"
 
-            # Step 2 — Campaign (dedup by key)
-            if campaign_key not in campaign_cache:
+            # Step 2 — Campaign (dedup by name, checked against pre-fetched + in-run cache)
+            if campaign_name not in campaign_cache:
                 campaign_id = post_campaign(session, row)
-                campaign_cache[campaign_key] = campaign_id
+                campaign_cache[campaign_name] = campaign_id
                 print_success(f"{prefix} Campaign CREATED  id={campaign_id}")
             else:
-                campaign_id = campaign_cache[campaign_key]
+                campaign_id = campaign_cache[campaign_name]
                 print_info(f"{prefix} Campaign REUSED   id={campaign_id}")
 
             # Step 3 — Import (dedup by FILENAME)
