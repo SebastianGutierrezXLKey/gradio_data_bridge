@@ -217,11 +217,32 @@ def to_iso(value: Any) -> str | None:
 # Mapping helpers
 # ---------------------------------------------------------------------------
 
-def load_unit_lookup(mapping_file: Path) -> dict[str, str]:
-    """Load sample units mapping → {zone_name_2: target_api_id}."""
-    with open(mapping_file, encoding="utf-8") as f:
-        mapping: list[dict] = json.load(f)
-    return {entry["zone_name_2"]: str(entry["target_api_id"]) for entry in mapping if entry.get("zone_name_2")}
+def load_unit_lookup(*mapping_files: Path) -> dict[str, dict]:
+    """
+    Load one or more sample units mapping files and merge into a single lookup dict.
+    Key: zone_name_2 (zones) or name (points).
+    Value: full entry dict including target_api_id, unit_type, source_table.
+    Warns on key conflicts between files.
+    """
+    combined: dict[str, dict] = {}
+    for mapping_file in mapping_files:
+        if mapping_file is None or not mapping_file.exists():
+            continue
+        with open(mapping_file, encoding="utf-8") as f:
+            entries: list[dict] = json.load(f)
+        for entry in entries:
+            key = entry.get("zone_name_2") or entry.get("name")
+            if not key:
+                continue
+            if key in combined:
+                print_warning(
+                    f"Key conflict in mapping files: '{key}' exists in both "
+                    f"'{combined[key].get('source_table')}' and '{entry.get('source_table')}'. "
+                    "Keeping first match."
+                )
+                continue
+            combined[key] = entry
+    return combined
 
 
 def field_to_zone_name_2(field_value: str) -> str | None:
@@ -437,11 +458,14 @@ async def upgrade(
             skipped += 1
             continue
 
-        sampling_unit_id = unit_lookup.get(zone_name_2)
-        if not sampling_unit_id:
+        unit_entry = unit_lookup.get(zone_name_2)
+        if not unit_entry:
             print_warning(f"[{i}/{len(rows)}] source_id={source_id} — zone_name_2={zone_name_2!r} not in mapping, skipping")
             skipped += 1
             continue
+
+        sampling_unit_id = str(unit_entry["target_api_id"])
+        unit_type = unit_entry.get("unit_type", "unknown")
 
         date_key = str(row.get("DATE_KEY") or "")
         no_dispatch = str(row.get("NO_DISPATCH") or "")
@@ -453,7 +477,7 @@ async def upgrade(
             campaign_name = f"Campaign {to_iso(sampling_date) or date_key}"
             print_info(
                 f"[{i}/{len(rows)}] DRY RUN source_id={source_id} "
-                f"zone_name_2={zone_name_2!r} unit_id={sampling_unit_id} "
+                f"zone_name_2={zone_name_2!r} unit_id={sampling_unit_id} unit_type={unit_type} "
                 f"campaign={campaign_name!r} file={filename.rsplit('/', 1)[-1]!r}"
             )
             succeeded += 1
@@ -485,6 +509,7 @@ async def upgrade(
             results.append({
                 "source_id": source_id,
                 "zone_name_2": zone_name_2,
+                "unit_type": unit_type,
                 "FIELD_raw": raw_field,
                 "campaign_id": campaign_id,
                 "import_id": import_id,
@@ -632,10 +657,18 @@ Examples:
         help="Filter source rows: FILENAME ILIKE '%%{VALUE}%%'",
     )
     parser.add_argument(
-        "--mapping-file",
+        "--zones-mapping-file",
         type=Path,
         default=None,
-        help="Path to sample_units_mapping JSON. Defaults to latest file in output/.",
+        dest="zones_mapping_file",
+        help="Path to sample_units_mapping JSON (zones). Defaults to latest sample_units_mapping_*.json in output/.",
+    )
+    parser.add_argument(
+        "--points-mapping-file",
+        type=Path,
+        default=None,
+        dest="points_mapping_file",
+        help="Path to sample_units_points_mapping JSON. Defaults to latest sample_units_points_mapping_*.json in output/ if present.",
     )
     parser.add_argument(
         "--dry-run",
@@ -682,15 +715,19 @@ Examples:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             args.output_file = OUTPUT_DIR / f"campaigns_migration_{ts}.json"
 
-    # Resolve mapping file (not needed for downgrade)
+    # Resolve mapping files (not needed for downgrade)
     if not args.downgrade:
-        if args.mapping_file is None:
+        if args.zones_mapping_file is None:
             candidates = sorted(OUTPUT_DIR.glob("sample_units_mapping_*.json"), reverse=True)
             if not candidates:
                 print_error(f"No sample_units_mapping file found in {OUTPUT_DIR}. Run test_sample_units_migration.py first.")
-            args.mapping_file = candidates[0]
-        if not args.mapping_file.exists():
-            print_error(f"Mapping file not found: {args.mapping_file}")
+            args.zones_mapping_file = candidates[0]
+        if not args.zones_mapping_file.exists():
+            print_error(f"Zones mapping file not found: {args.zones_mapping_file}")
+
+        if args.points_mapping_file is None:
+            candidates = sorted(OUTPUT_DIR.glob("sample_units_points_mapping_*.json"), reverse=True)
+            args.points_mapping_file = candidates[0] if candidates else None  # optional
 
     print_step("SETUP - Configuration")
     mode = "DOWNGRADE" if args.downgrade else ("DRY RUN" if args.dry_run else "UPGRADE")
@@ -698,7 +735,8 @@ Examples:
     if not args.downgrade:
         print(f"   Limit        : {args.limit} rows")
         print(f"   Filter       : {args.filename_filter or 'none'}")
-        print(f"   Mapping file : {args.mapping_file}")
+        print(f"   Zones mapping  : {args.zones_mapping_file}")
+        print(f"   Points mapping : {args.points_mapping_file or '(none found)'}")
     print(f"   Output file  : {args.output_file or '(none — dry run)'}")
     print(f"   API          : {API_BASE_URL}{API_VERSION}")
 
@@ -732,10 +770,12 @@ Examples:
         print_success("Downgrade completed successfully!")
         return
 
-    # Load unit mapping
+    # Load and merge unit mappings (zones + points)
     print_step("SETUP - Loading sample units mapping")
-    unit_lookup = load_unit_lookup(args.mapping_file)
-    print_success(f"Loaded {len(unit_lookup)} entries from {args.mapping_file.name}")
+    unit_lookup = load_unit_lookup(args.zones_mapping_file, args.points_mapping_file)
+    zones_count = sum(1 for e in unit_lookup.values() if e.get("unit_type") == "zone")
+    points_count = sum(1 for e in unit_lookup.values() if e.get("unit_type") == "point")
+    print_success(f"Loaded {len(unit_lookup)} entries ({zones_count} zones, {points_count} points)")
 
     # Pre-flight: resolve lab_id
     if not args.dry_run:

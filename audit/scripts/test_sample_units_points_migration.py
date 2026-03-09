@@ -368,6 +368,8 @@ async def upgrade(
                 "target_api_id": target_id,
                 "samp_name_raw": raw_name,
                 "name": name,
+                "unit_type": "point",
+                "source_table": SOURCE_TABLE,
             })
             succeeded += 1
 

@@ -356,6 +356,8 @@ async def upgrade(
                 "target_api_id": target_id,
                 "FIELD_NAME": field_name,
                 "zone_name_2": zone_name,
+                "unit_type": "zone",
+                "source_table": SOURCE_TABLE,
             })
             succeeded += 1
 
