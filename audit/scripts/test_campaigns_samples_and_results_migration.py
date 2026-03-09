@@ -6,7 +6,7 @@ Reads rows from xlkey.temp_analyses and creates, in sequence:
   1. Sampling campaigns  (POST /soil-sampling/campaigns)
   2. Lab result imports  (POST /soil-sampling/imports)
   3. Samples             (POST /soil-sampling/samples)
-  4. Sample lab results  (POST /soil-sampling/sample-lab-results)
+  4. Sample lab results  (POST /soil-sampling/results)
 
 A sample-units mapping JSON (produced by test_sample_units_migration.py) is
 required to resolve xlkey.temp_analyses.FIELD → sampling_unit_id.
@@ -434,7 +434,7 @@ def post_lab_result(
     for source_col, api_field in LAB_RESULT_FIELD_MAP.items():
         payload[api_field] = make_serializable(row.get(source_col))
 
-    url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/sample-lab-results"
+    url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/results"
     resp = session.post(url, json=payload, timeout=30)
     if not resp.ok:
         raise RuntimeError(f"Lab result POST failed {resp.status_code}: {resp.text}")
@@ -596,7 +596,7 @@ def downgrade(session: requests.Session, output_file: Path) -> None:
         lab_result_id = entry.get("lab_result_id")
         if lab_result_id:
             try:
-                url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/sample-lab-results/{lab_result_id}"
+                url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/results/{lab_result_id}"
                 resp = session.delete(url, timeout=15)
                 resp.raise_for_status()
                 deleted_lab_results += 1
