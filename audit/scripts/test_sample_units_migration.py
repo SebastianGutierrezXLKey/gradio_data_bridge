@@ -96,17 +96,16 @@ API_CLIENT_ID = os.getenv("API_CLIENT_ID", "")
 API_CLIENT_SECRET = os.getenv("API_CLIENT_SECRET", "")
 
 UNITS_ENDPOINT = "/soil-sampling/units"
-SOURCE_TABLE = "xlkey.sampling_zone_2"
+SOURCE_TABLE = "xlkey.temp_zones"
 ACCOUNTS_TABLE = "xlkey.accounts"
 
 # Source table columns (excluding raw geometry which is handled via ST_AsGeoJSON)
 ZONE_COLUMNS = [
-    "id", '"FARM_ID"', '"FIELD_ID"', "site_id", '"FIELD_NAME"',
-    '"SOURCE"', "zone_name", "zone_name_2", "year_key",
-    '"S3_UPLOAD_DATE"', "area_acre",
+    "id", "farm_id", "field_id", "year_key",
+    "zone_name", "name", "sampling_name", "area",
 ]
-# Columns to exclude from sample_unit_metadata (already used as name or geometry)
-METADATA_EXCLUDE_COLS = {"zone_name_2", "geometry"}
+# Columns to exclude from sample_unit_metadata (name used as unit name, geometry handled separately)
+METADATA_EXCLUDE_COLS = {"zone_name", "geometry"}
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +194,7 @@ def build_unit_payload(row: dict) -> dict:
             geometry = json.loads(geometry)
         except (json.JSONDecodeError, TypeError):
             geometry = None
-    name = row.get("zone_name_2")
+    name = row.get("name")
 
     metadata: dict[str, Any] = {}
     for k, v in row.items():
@@ -230,7 +229,7 @@ async def count_zones(
                 ORDER BY id ASC
             )
             SELECT COUNT(*) FROM {SOURCE_TABLE}
-            WHERE "FARM_ID" IN (SELECT id FROM account_list)
+            WHERE farm_id IN (SELECT id FROM account_list)
             """,
             param,
         )
@@ -259,7 +258,7 @@ async def fetch_zones(
             )
             SELECT {select_clause}
             FROM {SOURCE_TABLE}
-            WHERE "FARM_ID" IN (SELECT id FROM account_list)
+            WHERE farm_id IN (SELECT id FROM account_list)
         """
         param = int(value) if str(value).isdigit() else value
         rows = await conn.fetch(query, param)
@@ -295,7 +294,7 @@ async def upgrade(
 
     # Build a set of (zone_name_2, FIELD_NAME) already present in the target API
     print_step("UPGRADE - Checking Existing Units in Target API")
-    existing_keys: set[tuple[str, str]] = set()
+    existing_keys: set[str] = set()
     if not dry_run:
         try:
             url = f"{API_BASE_URL}{API_VERSION}{UNITS_ENDPOINT}"
@@ -306,10 +305,9 @@ async def upgrade(
             if not isinstance(existing_units, list):
                 existing_units = []
             for unit in existing_units:
-                name = str(unit.get("name") or "")
-                field = str((unit.get("sample_unit_metadata") or {}).get("FIELD_NAME") or "")
-                existing_keys.add((name, field))
-            print_info(f"Found {len(existing_units)} existing units in API ({len(existing_keys)} unique name/field pairs)")
+                if unit.get("unit_type") == "zone" and unit.get("zone_name"):
+                    existing_keys.add(str(unit["zone_name"]))
+            print_info(f"Found {len(existing_units)} existing units in API ({len(existing_keys)} zones by name)")
         except Exception as exc:
             print_warning(f"Could not fetch existing units (will proceed without duplicate check): {exc}")
     else:
@@ -326,22 +324,22 @@ async def upgrade(
 
     for i, row in enumerate(zones, 1):
         source_id = str(row.get("id", i))
-        zone_name = str(row.get("zone_name_2") or "")
-        field_name = str(row.get("FIELD_NAME") or "")
+        zone_name = str(row.get("zone_name") or "")
+        field_id = str(row.get("field_id") or "")
         payload = build_unit_payload(row)
 
         if dry_run:
             print_info(
                 f"[{i}/{len(zones)}] Would POST source_id={source_id} "
-                f"name={zone_name!r} field={field_name!r} "
+                f"name={zone_name!r} field_id={field_id!r} "
                 f"geometry_type={payload['geometry'].get('type') if isinstance(payload.get('geometry'), dict) else ('present' if payload.get('geometry') else 'NULL')}"
             )
             succeeded += 1
             continue
 
         # Skip if already exists in target API
-        if (zone_name, field_name) in existing_keys:
-            print_warning(f"[{i}/{len(zones)}] SKIP — already exists: name={zone_name!r} field={field_name!r}")
+        if zone_name in existing_keys:
+            print_warning(f"[{i}/{len(zones)}] SKIP — already exists: name={zone_name!r}")
             skipped += 1
             continue
 
@@ -356,8 +354,8 @@ async def upgrade(
             mapping.append({
                 "source_id": source_id,
                 "target_api_id": target_id,
-                "FIELD_NAME": field_name,
-                "zone_name_2": zone_name,
+                "field_id": field_id,
+                "name": zone_name,
                 "unit_type": "zone",
                 "source_table": SOURCE_TABLE,
             })
@@ -442,7 +440,7 @@ async def downgrade(
 
 async def main() -> None:
     print(f"{Colors.OKBLUE}🚀 XLHub Sample Units Migration Script{Colors.ENDC}")
-    print(f"{Colors.OKBLUE}   Migrates xlkey.sampling_zone_2 → xlhub /soil-sampling/units{Colors.ENDC}\n")
+    print(f"{Colors.OKBLUE}   Migrates xlkey.temp_zones → xlhub /soil-sampling/units (type: zone){Colors.ENDC}\n")
 
     parser = argparse.ArgumentParser(
         description="Migrate sampling zones to xlhub /soil-sampling/units endpoint",
