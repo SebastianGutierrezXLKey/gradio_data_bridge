@@ -263,7 +263,7 @@ async def fetch_points(
         query = f"""
             WITH account_list AS (
                 SELECT id FROM {ACCOUNTS_TABLE}
-                WHERE {col_name} ILIKE $1
+                WHERE {col_name} = $1
                 ORDER BY id ASC
             ),
             fields_list AS (
@@ -277,7 +277,8 @@ async def fetch_points(
             FROM {SOURCE_TABLE} tp
             WHERE tp.field_id IN (SELECT id FROM fields_list)
         """
-        rows = await conn.fetch(query, f"%{value}%")
+        param = int(value) if str(value).isdigit() else value
+        rows = await conn.fetch(query, param)
     else:
         query = f'SELECT {select_clause} FROM {SOURCE_TABLE} tp'
         rows = await conn.fetch(query)
@@ -467,7 +468,7 @@ Examples:
     parser.add_argument(
         "--value",
         default=None,
-        help="Value to search with ILIKE in --col-name. If omitted, all points are migrated.",
+        help="Value to search in --col-name. If omitted, all points are migrated.",
     )
     parser.add_argument(
         "--prefix",
@@ -512,7 +513,7 @@ Examples:
     mode = "DOWNGRADE" if args.downgrade else ("DRY RUN" if args.dry_run else "UPGRADE")
     print(f"   Mode    : {mode}")
     if not args.downgrade:
-        print(f"   Filter  : {args.col_name} ILIKE '%{args.value}%'" if args.value else "   Filter  : none (all points)")
+        print(f"   Filter  : {args.col_name} = '{args.value}    '" if args.value else "   Filter  : none (all points)")
         print(f"   Prefix  : {args.prefix!r} (to strip from samp_name)")
 
     # Resolve mapping file

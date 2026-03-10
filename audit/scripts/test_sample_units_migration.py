@@ -225,13 +225,13 @@ async def count_zones(
             f"""
             WITH account_list AS (
                 SELECT id FROM {ACCOUNTS_TABLE}
-                WHERE {col_name} ILIKE $1
+                WHERE {col_name} = $1
                 ORDER BY id ASC
             )
             SELECT COUNT(*) FROM {SOURCE_TABLE}
             WHERE "FARM_ID" IN (SELECT id FROM account_list)
             """,
-            f"%{value}%",
+            f"{value}",
         )
     else:
         filtered = total
@@ -253,14 +253,15 @@ async def fetch_zones(
             WITH account_list AS (
                 SELECT id
                 FROM {ACCOUNTS_TABLE}
-                WHERE {col_name} ILIKE $1
+                WHERE {col_name} = $1
                 ORDER BY id ASC
             )
             SELECT {select_clause}
             FROM {SOURCE_TABLE}
             WHERE "FARM_ID" IN (SELECT id FROM account_list)
         """
-        rows = await conn.fetch(query, f"%{value}%")
+        param = int(value) if str(value).isdigit() else value
+        rows = await conn.fetch(query, param)
     else:
         query = f'SELECT {select_clause} FROM {SOURCE_TABLE}'
         rows = await conn.fetch(query)
@@ -285,7 +286,7 @@ async def upgrade(
     filtered, total = await count_zones(conn, col_name, value)
     print_info(f"Total records in {SOURCE_TABLE}: {total}")
     if value:
-        print_info(f"Records matching {col_name} ILIKE '%{value}%': {filtered}")
+        print_info(f"Records matching {col_name} = '{value}': {filtered}")
     print_info(f"Records to migrate: {filtered}")
 
     zones = await fetch_zones(conn, col_name, value)
@@ -468,7 +469,7 @@ Examples:
     parser.add_argument(
         "--value",
         default=None,
-        help="Value to search with ILIKE in --col-name. If omitted, all zones are migrated.",
+        help="Value to search in --col-name. If omitted, all zones are migrated.",
     )
     parser.add_argument(
         "--token",
@@ -509,7 +510,7 @@ Examples:
     print(f"   Mode: {mode}")
     if not args.downgrade:
         if args.value:
-            print(f"   Filter: {args.col_name} ILIKE '%{args.value}%'")
+            print(f"   Filter: {args.col_name} = '{args.value}'")
         else:
             print("   Filter: none (all zones)")
     # Resolve mapping file path (auto-generate timestamped name for upgrade)
