@@ -265,7 +265,6 @@ async def fetch_points(
                 SELECT id FROM {ACCOUNTS_TABLE}
                 WHERE {col_name} ILIKE $1
                 ORDER BY id ASC
-                LIMIT 200
             ),
             fields_list AS (
                 SELECT id FROM {FIELDS_TABLE}
@@ -273,7 +272,6 @@ async def fetch_points(
                   AND status = 'active'
                   AND deleted_at IS NULL
                 ORDER BY id ASC
-                LIMIT 100
             )
             SELECT {select_clause}
             FROM {SOURCE_TABLE} tp
