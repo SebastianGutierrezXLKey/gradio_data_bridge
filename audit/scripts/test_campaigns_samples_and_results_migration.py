@@ -417,14 +417,15 @@ def post_sample(
     row: dict,
     sampling_unit_id: str,
     campaign_id: str,
-    zone_name_2: str,
+    raw_field: str,
 ) -> str:
     """Create a sample and return its ID."""
     sampling_date = row.get("sampling_date")
     date_key = row.get("DATE_KEY")
     sampled_at = to_iso(sampling_date) if sampling_date is not None else to_date_str(date_key)
     sent_to_lab_at = to_iso(row.get("INGESTED_AT"))
-    sample_label = str(row.get("samp_name") or "").strip() or zone_name_2
+    # sample_label format: [field]_[sample_no] e.g. "FR01_1"
+    sample_label = str(row.get("samp_name") or "").strip() or raw_field
 
     payload = {
         "sampling_unit_id": sampling_unit_id,
@@ -553,7 +554,7 @@ async def upgrade(
                 print_info(f"{prefix} Import   REUSED   id={import_id}")
 
             # Step 4 — Sample
-            sample_id = post_sample(session, row, sampling_unit_id, campaign_id, zone_name_2)
+            sample_id = post_sample(session, row, sampling_unit_id, campaign_id, raw_field)
             print_success(f"{prefix} Sample   CREATED  id={sample_id}")
 
             # Step 5 — Lab result
