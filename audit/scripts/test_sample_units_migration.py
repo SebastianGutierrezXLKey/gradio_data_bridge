@@ -255,7 +255,6 @@ async def fetch_zones(
                 FROM {ACCOUNTS_TABLE}
                 WHERE {col_name} ILIKE $1
                 ORDER BY id ASC
-                ORDER BY id ASC
             )
             SELECT {select_clause}
             FROM {SOURCE_TABLE}
