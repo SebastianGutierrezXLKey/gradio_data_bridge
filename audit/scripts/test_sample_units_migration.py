@@ -98,14 +98,10 @@ API_CLIENT_SECRET = os.getenv("API_CLIENT_SECRET", "")
 UNITS_ENDPOINT = "/soil-sampling/units"
 SOURCE_TABLE = "xlkey.temp_zones"
 ACCOUNTS_TABLE = "xlkey.accounts"
+FIELDS_TABLE = "xlkey.fields"
 
-# Source table columns (excluding raw geometry which is handled via ST_AsGeoJSON)
-ZONE_COLUMNS = [
-    "id", "farm_id", "field_id", "year_key",
-    "zone_name", "name", "sampling_name", "area",
-]
-# Columns to exclude from sample_unit_metadata (name used as unit name, geometry handled separately)
-METADATA_EXCLUDE_COLS = {"zone_name", "geometry"}
+# Columns to exclude from sample_unit_metadata (zone_name_2 used as unit name, geometry handled separately)
+METADATA_EXCLUDE_COLS = {"zone_name_2", "geometry"}
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +190,7 @@ def build_unit_payload(row: dict) -> dict:
             geometry = json.loads(geometry)
         except (json.JSONDecodeError, TypeError):
             geometry = None
-    name = row.get("name")
+    zone_name_2 = row.get("zone_name_2")
 
     metadata: dict[str, Any] = {}
     for k, v in row.items():
@@ -203,7 +199,7 @@ def build_unit_payload(row: dict) -> dict:
 
     return {
         "unit_type": "zone",
-        "name": str(name) if name is not None else None,
+        "name": str(zone_name_2) if zone_name_2 is not None else None,
         "geometry": geometry,
         "sample_unit_metadata": metadata,
     }
@@ -242,11 +238,17 @@ async def count_zones(
 async def fetch_zones(
     conn: asyncpg.Connection, col_name: str, value: str | None
 ) -> list[dict]:
-    """Fetch sampling zones, converting geometry to GeoJSON."""
-    col_list = ", ".join(ZONE_COLUMNS)
-    select_clause = (
-        f'{col_list}, ST_AsGeoJSON(ST_CurveToLine("geometry"))::json AS geometry'
-    )
+    """
+    Fetch sampling zones with a JOIN on xlkey.fields to build zone_name_2
+    in [zone_name]_[field_name] format (e.g. '5_FR01') for campaign lookup.
+    """
+    select_clause = """
+        tz.id, tz.farm_id, tz.field_id, tz.year_key,
+        tz.zone_name, tz.name, tz.sampling_name, tz.area,
+        f.name AS field_name,
+        tz.name || '_' || f.name AS zone_name_2,
+        ST_AsGeoJSON(ST_CurveToLine(tz."geometry"))::json AS geometry
+    """
 
     if value:
         query = f"""
@@ -257,13 +259,18 @@ async def fetch_zones(
                 ORDER BY id ASC
             )
             SELECT {select_clause}
-            FROM {SOURCE_TABLE}
-            WHERE farm_id IN (SELECT id FROM account_list)
+            FROM {SOURCE_TABLE} tz
+            JOIN {FIELDS_TABLE} f ON f.id = tz.field_id
+            WHERE tz.farm_id IN (SELECT id FROM account_list)
         """
         param = int(value) if str(value).isdigit() else value
         rows = await conn.fetch(query, param)
     else:
-        query = f'SELECT {select_clause} FROM {SOURCE_TABLE}'
+        query = f"""
+            SELECT {select_clause}
+            FROM {SOURCE_TABLE} tz
+            JOIN {FIELDS_TABLE} f ON f.id = tz.field_id
+        """
         rows = await conn.fetch(query)
 
     return [dict(row) for row in rows]
@@ -324,22 +331,22 @@ async def upgrade(
 
     for i, row in enumerate(zones, 1):
         source_id = str(row.get("id", i))
-        zone_name = str(row.get("zone_name") or "")
+        zone_name_2 = str(row.get("zone_name_2") or "")
         field_id = str(row.get("field_id") or "")
         payload = build_unit_payload(row)
 
         if dry_run:
             print_info(
                 f"[{i}/{len(zones)}] Would POST source_id={source_id} "
-                f"name={zone_name!r} field_id={field_id!r} "
+                f"zone_name_2={zone_name_2!r} field_id={field_id!r} "
                 f"geometry_type={payload['geometry'].get('type') if isinstance(payload.get('geometry'), dict) else ('present' if payload.get('geometry') else 'NULL')}"
             )
             succeeded += 1
             continue
 
         # Skip if already exists in target API
-        if zone_name in existing_keys:
-            print_warning(f"[{i}/{len(zones)}] SKIP — already exists: name={zone_name!r}")
+        if zone_name_2 in existing_keys:
+            print_warning(f"[{i}/{len(zones)}] SKIP — already exists: zone_name_2={zone_name_2!r}")
             skipped += 1
             continue
 
@@ -355,7 +362,7 @@ async def upgrade(
                 "source_id": source_id,
                 "target_api_id": target_id,
                 "field_id": field_id,
-                "name": zone_name,
+                "zone_name_2": zone_name_2,
                 "unit_type": "zone",
                 "source_table": SOURCE_TABLE,
             })
