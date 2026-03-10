@@ -221,6 +221,7 @@ async def count_zones(
     total = await conn.fetchval(f'SELECT COUNT(*) FROM {SOURCE_TABLE}')
 
     if value:
+        param = int(value) if str(value).isdigit() else value
         filtered = await conn.fetchval(
             f"""
             WITH account_list AS (
@@ -231,7 +232,7 @@ async def count_zones(
             SELECT COUNT(*) FROM {SOURCE_TABLE}
             WHERE "FARM_ID" IN (SELECT id FROM account_list)
             """,
-            f"{value}",
+            param,
         )
     else:
         filtered = total
