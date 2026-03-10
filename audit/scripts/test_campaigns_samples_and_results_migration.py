@@ -457,6 +457,8 @@ def post_lab_result(
     payload: dict[str, Any] = {
         "sample_id": sample_id,
         "import_lab_result_raw_id": import_id,
+        "date_key": make_serializable(row.get("DATE_KEY")),
+        "nolab": make_serializable(row.get("NOLAB")),
     }
     for source_col, api_field in LAB_RESULT_FIELD_MAP.items():
         payload[api_field] = make_serializable(row.get(source_col))
