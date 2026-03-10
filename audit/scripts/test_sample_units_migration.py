@@ -246,8 +246,8 @@ async def fetch_zones(
         tz.id, tz.farm_id, tz.field_id, tz.year_key,
         tz.zone_name, tz.name, tz.sampling_name, tz.area,
         f.name AS field_name,
-        tz.name || '_' || f.name AS zone_name_2,
-        ST_AsGeoJSON(ST_CurveToLine(tz."geometry"))::json AS geometry
+        tz.zone_name || '_' || f.name AS zone_name_2,
+        ST_AsGeoJSON(ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(tz."geometry")), 3)))::json AS geometry
     """
 
     if value:
@@ -312,8 +312,8 @@ async def upgrade(
             if not isinstance(existing_units, list):
                 existing_units = []
             for unit in existing_units:
-                if unit.get("unit_type") == "zone" and unit.get("zone_name"):
-                    existing_keys.add(str(unit["zone_name"]))
+                if unit.get("unit_type") == "zone" and unit.get("name"):
+                    existing_keys.add(str(unit["name"]))
             print_info(f"Found {len(existing_units)} existing units in API ({len(existing_keys)} zones by name)")
         except Exception as exc:
             print_warning(f"Could not fetch existing units (will proceed without duplicate check): {exc}")
