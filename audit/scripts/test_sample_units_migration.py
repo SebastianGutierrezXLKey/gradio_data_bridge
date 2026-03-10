@@ -226,7 +226,7 @@ async def count_zones(
             WITH account_list AS (
                 SELECT id FROM {ACCOUNTS_TABLE}
                 WHERE {col_name} ILIKE $1
-                LIMIT 200
+                ORDER BY id ASC
             )
             SELECT COUNT(*) FROM {SOURCE_TABLE}
             WHERE "FARM_ID" IN (SELECT id FROM account_list)
@@ -255,7 +255,7 @@ async def fetch_zones(
                 FROM {ACCOUNTS_TABLE}
                 WHERE {col_name} ILIKE $1
                 ORDER BY id ASC
-                LIMIT 200
+                ORDER BY id ASC
             )
             SELECT {select_clause}
             FROM {SOURCE_TABLE}
