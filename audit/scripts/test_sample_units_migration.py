@@ -245,7 +245,7 @@ async def fetch_zones(
     """Fetch sampling zones, converting geometry to GeoJSON."""
     col_list = ", ".join(ZONE_COLUMNS)
     select_clause = (
-        f'{col_list}, ST_AsGeoJSON("geometry")::json AS geometry'
+        f'{col_list}, ST_AsGeoJSON(ST_CurveToLine("geometry"))::json AS geometry'
     )
 
     if value:
