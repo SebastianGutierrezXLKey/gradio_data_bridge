@@ -453,16 +453,16 @@ async def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python audit/scripts/test_sample_units_points_migration.py --value "9206" --dry-run
-  python audit/scripts/test_sample_units_points_migration.py --value "9206"
-  python audit/scripts/test_sample_units_points_migration.py --value "9206" --prefix "ABC"
+  python audit/scripts/test_sample_units_points_migration.py --value "681" --dry-run
+  python audit/scripts/test_sample_units_points_migration.py --value "681"
+  python audit/scripts/test_sample_units_points_migration.py --value "681" --prefix "ABC"
   python audit/scripts/test_sample_units_points_migration.py --downgrade
         """,
     )
     parser.add_argument(
         "--col-name",
-        default="name_en",
-        help="Column in xlkey.accounts to filter on (default: name_en)",
+        default="id",
+        help="Column in xlkey.accounts to filter on (default: id)",
     )
     parser.add_argument(
         "--value",

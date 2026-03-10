@@ -10,10 +10,10 @@ Usage:
     python audit/scripts/test_sample_units_migration.py
 
     # Filter by account name
-    python audit/scripts/test_sample_units_migration.py --value "9206"
+    python audit/scripts/test_sample_units_migration.py --value "681"
 
     # Dry run (no API writes)
-    python audit/scripts/test_sample_units_migration.py --value "9206" --dry-run
+    python audit/scripts/test_sample_units_migration.py --value "681" --dry-run
 
     # Delete previously created units (downgrade)
     python audit/scripts/test_sample_units_migration.py --downgrade
@@ -346,7 +346,8 @@ async def upgrade(
         try:
             url = f"{API_BASE_URL}{API_VERSION}{UNITS_ENDPOINT}"
             resp = session.post(url, json=payload, timeout=30)
-            resp.raise_for_status()
+            if not resp.ok:
+                raise RuntimeError(f"{resp.status_code} {resp.reason}: {resp.text}")
             data = resp.json()
             target_id = str((data.get("data") or data).get("id", ""))
 
@@ -461,8 +462,8 @@ Examples:
     )
     parser.add_argument(
         "--col-name",
-        default="name_en",
-        help="Column in xlkey.accounts to filter on (default: name_en)",
+        default="id",
+        help="Column in xlkey.accounts to filter on (default: id)",
     )
     parser.add_argument(
         "--value",
