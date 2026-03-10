@@ -269,7 +269,7 @@ async def fetch_points(
             fields_list AS (
                 SELECT id FROM {FIELDS_TABLE}
                 WHERE account_id IN (SELECT id FROM account_list)
-                  AND status = 'active'
+                  AND lower(status) = 'active'
                   AND deleted_at IS NULL
                 ORDER BY id ASC
             )
