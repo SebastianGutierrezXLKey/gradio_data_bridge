@@ -436,6 +436,8 @@ def post_sample(
         "sampled_at": sampled_at,
         "sent_to_lab_at": sent_to_lab_at,
         "tracking_number": None,
+        "date_key": make_serializable(row.get("DATE_KEY")),
+        "nolab": make_serializable(row.get("NOLAB")),
     }
     url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/samples"
     resp = session.post(url, json=payload, timeout=30)
