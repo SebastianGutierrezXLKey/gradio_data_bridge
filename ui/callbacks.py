@@ -249,6 +249,24 @@ def handle_api_connect(
 # Tab 5 — Soil Sampling Migration
 # ---------------------------------------------------------------------------
 
+def ss_get_source_columns(source_table: str, state: dict) -> list[str]:
+    """Return column names for source_table as quoted SQL identifiers.
+
+    source_table may be 'schema.table' or just 'table'.
+    """
+    conn = state.get("source_conn")
+    if not conn or not conn.is_connected() or not source_table.strip():
+        return []
+    parts = source_table.strip().split(".", 1)
+    schema = parts[0] if len(parts) == 2 else "public"
+    table = parts[1] if len(parts) == 2 else parts[0]
+    try:
+        cols = get_columns(conn, table, schema)
+        return [f'"{c["name"]}"' for c in cols]
+    except Exception:
+        return []
+
+
 def ss_manage_lab(
     action: str,   # "check" | "create" | "delete"
     name: str,
