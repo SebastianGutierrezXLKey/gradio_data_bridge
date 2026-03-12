@@ -301,8 +301,8 @@ def find_unit_entry(
     if match_mode in ("auto", "contains"):
         field_lower = normalized.lower()
         for key, entry in unit_lookup.items():
-            key_lower = key.lower()
-            if field_lower in key_lower or key_lower in field_lower:
+            key_norm = key.replace("-", "_").replace(" ", "_").lower()
+            if field_lower in key_norm or key_norm in field_lower:
                 return key, entry
 
     return None, None
