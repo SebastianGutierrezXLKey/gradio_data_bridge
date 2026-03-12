@@ -23,6 +23,7 @@ from ui.callbacks import (
     ss_load_source_fields,
     ss_load_units_api,
     ss_load_units_db,
+    ss_manage_lab,
     ss_run_migration,
     validate_current_mapping,
 )
@@ -568,6 +569,55 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
         )
 
         # ----------------------------------------------------------------
+        # Section 0 — Laboratoire
+        # ----------------------------------------------------------------
+        with gr.Accordion("🧪 Laboratoire", open=False):
+            gr.Markdown("Créez ou vérifiez le laboratoire cible dans l'API avant de migrer.")
+            with gr.Row():
+                lab_name_inp = gr.Textbox(label="Nom", value=_env("LAB_NAME"), scale=2)
+                lab_code_inp = gr.Textbox(label="Code", value=_env("LAB_CODE"), scale=1)
+            with gr.Row():
+                lab_address_inp = gr.Textbox(label="Adresse", value=_env("LAB_ADDRESS"), scale=2)
+                lab_city_inp = gr.Textbox(label="Ville", value=_env("LAB_CITY"), scale=1)
+                lab_province_inp = gr.Textbox(label="Province", value=_env("LAB_PROVINCE"), scale=1)
+                lab_postal_inp = gr.Textbox(label="Code postal", value=_env("LAB_POSTAL_CODE"), scale=1)
+            with gr.Row():
+                lab_email_inp = gr.Textbox(label="Courriel", value=_env("LAB_CONTACT_EMAIL"), scale=2)
+                lab_phone_inp = gr.Textbox(label="Téléphone", value=_env("LAB_CONTACT_PHONE"), scale=1)
+                lab_country_inp = gr.Textbox(label="Pays", value=_env("LAB_COUNTRY"), scale=1)
+                lab_formats_inp = gr.Textbox(
+                    label="Formats supportés (JSON)", value=_env("LAB_SUPPORTED_FORMATS") or '["CSV"]', scale=1
+                )
+            with gr.Row():
+                lab_check_btn = gr.Button("🔍 Vérifier", variant="secondary", scale=1)
+                lab_create_btn = gr.Button("➕ Créer", variant="primary", scale=1)
+                lab_delete_btn = gr.Button("🗑️ Supprimer", variant="stop", scale=1)
+            lab_status = gr.Markdown("")
+
+            def _lab_inputs():
+                return [
+                    lab_name_inp, lab_code_inp, lab_address_inp, lab_city_inp,
+                    lab_province_inp, lab_postal_inp, lab_email_inp, lab_phone_inp,
+                    lab_country_inp, lab_formats_inp, app_state,
+                ]
+
+            lab_check_btn.click(
+                fn=lambda *a: ss_manage_lab("check", *a),
+                inputs=_lab_inputs(),
+                outputs=[lab_status],
+            )
+            lab_create_btn.click(
+                fn=lambda *a: ss_manage_lab("create", *a),
+                inputs=_lab_inputs(),
+                outputs=[lab_status],
+            )
+            lab_delete_btn.click(
+                fn=lambda *a: ss_manage_lab("delete", *a),
+                inputs=_lab_inputs(),
+                outputs=[lab_status],
+            )
+
+        # ----------------------------------------------------------------
         # Section 1 — Configuration
         # ----------------------------------------------------------------
         with gr.Accordion("⚙️ Configuration", open=True):
@@ -888,3 +938,9 @@ def import_env_lab_name() -> str:
     """Read LAB_NAME from environment (best-effort)."""
     import os
     return os.getenv("LAB_NAME", "")
+
+
+def _env(key: str) -> str:
+    """Read an env variable (best-effort, empty string if missing)."""
+    import os
+    return os.getenv(key, "")

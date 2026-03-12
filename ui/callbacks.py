@@ -249,6 +249,86 @@ def handle_api_connect(
 # Tab 5 — Soil Sampling Migration
 # ---------------------------------------------------------------------------
 
+def ss_manage_lab(
+    action: str,   # "check" | "create" | "delete"
+    name: str,
+    code: str,
+    address: str,
+    city: str,
+    province: str,
+    postal_code: str,
+    contact_email: str,
+    contact_phone: str,
+    country: str,
+    supported_formats_str: str,
+    state: dict,
+) -> str:
+    """Check, create, or delete a laboratory via the xlhub API."""
+    import json as _json
+
+    api_client = state.get("api_client")
+    if not api_client or not api_client.is_configured():
+        return "❌ Client API non configuré. Connectez l'API dans l'onglet Connexion."
+
+    session = api_client.session
+    base = api_client.base_url
+    version = api_client.api_version
+    url = f"{base}{version}/soil-sampling/laboratories"
+
+    # Fetch existing lab by name
+    def _find_lab(lab_name: str) -> dict | None:
+        resp = session.get(url, timeout=15)
+        resp.raise_for_status()
+        labs = (resp.json().get("data") or [])
+        if not isinstance(labs, list):
+            labs = []
+        for lab in labs:
+            if (lab.get("name") or "").strip().lower() == lab_name.strip().lower():
+                return lab
+        return None
+
+    try:
+        if action == "check":
+            lab = _find_lab(name)
+            if lab:
+                return f"✅ Laboratoire '{name}' existe — id={lab.get('id')}"
+            return f"ℹ️  Laboratoire '{name}' introuvable dans l'API."
+
+        elif action == "create":
+            lab = _find_lab(name)
+            if lab:
+                return f"⚠️  Laboratoire '{name}' existe déjà — id={lab.get('id')}. Aucune création."
+            try:
+                supported_formats = _json.loads(supported_formats_str) if supported_formats_str.strip() else []
+            except Exception:
+                supported_formats = [supported_formats_str.strip()] if supported_formats_str.strip() else []
+            payload = {
+                "name": name, "code": code,
+                "address": address, "city": city, "province": province,
+                "postal_code": postal_code, "contact_email": contact_email,
+                "contact_phone": contact_phone, "country": country,
+                "supported_formats": supported_formats,
+            }
+            resp = session.post(url, json=payload, timeout=30)
+            if not resp.ok:
+                return f"❌ Erreur API {resp.status_code}: {resp.text[:300]}"
+            lab_id = ((resp.json().get("data") or resp.json()).get("id"))
+            return f"✅ Laboratoire '{name}' créé — id={lab_id}"
+
+        elif action == "delete":
+            lab = _find_lab(name)
+            if not lab:
+                return f"⚠️  Laboratoire '{name}' introuvable. Rien à supprimer."
+            lab_id = lab.get("id")
+            resp = session.delete(f"{url}/{lab_id}", timeout=15)
+            if not resp.ok:
+                return f"❌ Erreur DELETE {resp.status_code}: {resp.text[:300]}"
+            return f"✅ Laboratoire '{name}' (id={lab_id}) supprimé."
+
+    except Exception as exc:
+        return f"❌ Erreur : {exc}"
+
+
 def ss_load_source_fields(
     source_table: str,
     filename_filter: str,
