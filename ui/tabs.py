@@ -627,16 +627,23 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
                     value="xlkey.temp_analyses",
                     scale=2,
                 )
-                ss_filename_filter = gr.Textbox(
-                    label="Filtre FILENAME (ILIKE)",
-                    placeholder="ex: 681",
-                    scale=1,
-                )
                 ss_limit = gr.Number(
                     label="Limite de lignes",
                     value=5,
                     precision=0,
                     scale=1,
+                )
+            with gr.Row():
+                ss_filter_col = gr.Textbox(
+                    label="Colonne source pour filtrer",
+                    value='"FILENAME"',
+                    placeholder='ex: "FILENAME" ou "FIELD" ou properties->>\'key\'',
+                    scale=2,
+                )
+                ss_filename_filter = gr.Textbox(
+                    label="Valeur du filtre (ILIKE)",
+                    placeholder="ex: 681",
+                    scale=2,
                 )
             with gr.Row():
                 ss_lab_name = gr.Textbox(
@@ -663,6 +670,19 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
                 value="Via API",
                 label="Source des unités",
             )
+
+            with gr.Row():
+                units_filter_col = gr.Textbox(
+                    label="Filtrer par colonne",
+                    placeholder="ex: name, unit_type, properties->>'zone'",
+                    scale=2,
+                )
+                units_filter_val = gr.Textbox(
+                    label="Valeur (contient)",
+                    placeholder="ex: FR01",
+                    scale=2,
+                )
+                units_apply_filter_btn = gr.Button("🔎 Filtrer", scale=1)
 
             with gr.Column(visible=True) as api_units_section:
                 ss_load_units_btn = gr.Button("📥 Charger les unités depuis l'API", variant="secondary")
@@ -777,9 +797,11 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
             outputs=[api_units_section, db_units_section],
         )
 
-        # Load source fields → populate mapping rows
-        def _load_source_fields(source_table, filename_filter, state):
-            fields, status = ss_load_source_fields(source_table, filename_filter, state)
+        # Load source fields → populate mapping rows (sorted alphabetically)
+        def _load_source_fields(source_table, filter_col, filter_val, state):
+            fields, status = ss_load_source_fields(source_table, filter_col, filter_val, state)
+            # already sorted alpha by SQL, ensure Python sort as safety net
+            fields = sorted(fields, key=lambda x: x[0])
             n = len(fields)
             row_updates = []
             field_labels = []
@@ -797,9 +819,27 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
 
         ss_load_fields_btn.click(
             fn=_load_source_fields,
-            inputs=[ss_source_table, ss_filename_filter, app_state],
+            inputs=[ss_source_table, ss_filter_col, ss_filename_filter, app_state],
             outputs=[mapping_area, ss_fields_status, ss_field_values_state] + field_rows,
         )
+
+        # Filter units list client-side by column/value
+        def _filter_units(units: list[dict], col: str, val: str) -> list[dict]:
+            if not col.strip() or not val.strip():
+                return units
+            val_lower = val.strip().lower()
+            result = []
+            for u in units:
+                # Support JSONB-style: properties->>'key' → look in nested dict
+                if "->>" in col:
+                    parts = col.replace("'", "").split("->>")
+                    obj = u.get(parts[0].strip(), {}) or {}
+                    cell = str(obj.get(parts[-1].strip(), "")).lower()
+                else:
+                    cell = str(u.get(col.strip(), "")).lower()
+                if val_lower in cell:
+                    result.append(u)
+            return result
 
         # Load units from API → update all dropdowns
         def _load_units_api(state, label_col):
@@ -822,6 +862,19 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
             fn=lambda state, col: _load_units_api(state, col),
             inputs=[app_state, ss_sql_label_col],
             outputs=[ss_units_status, ss_units_state] + unit_dropdowns,
+        )
+
+        # Apply client-side filter on loaded units
+        def _apply_units_filter(units, filter_col, filter_val, label_col):
+            filtered = _filter_units(units, filter_col, filter_val)
+            choices = _units_to_choices(filtered, label_col)
+            dd_updates = [gr.update(choices=choices) for _ in range(MAX_SS_ROWS)]
+            return [f"🔎 {len(filtered)} unité(s) après filtre"] + dd_updates
+
+        units_apply_filter_btn.click(
+            fn=_apply_units_filter,
+            inputs=[ss_units_state, units_filter_col, units_filter_val, ss_sql_label_col],
+            outputs=[ss_units_status] + unit_dropdowns,
         )
 
         # Execute SQL → update all dropdowns
