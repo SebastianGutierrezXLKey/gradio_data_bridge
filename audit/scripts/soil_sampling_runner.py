@@ -91,19 +91,24 @@ def to_date_str(value: Any) -> str | None:
 def fetch_distinct_fields(
     conn,  # DBConnector
     source_table: str,
-    filename_filter: str | None = None,
+    filter_col: str | None = None,
+    filter_val: str | None = None,
 ) -> list[tuple[str, int]]:
-    """Return [(FIELD_value, count)] sorted by count desc."""
-    if filename_filter:
+    """Return [(FIELD_value, count)] sorted alphabetically.
+
+    filter_col: column to filter on (e.g. '"FILENAME"', 'properties->>\'key\'')
+    filter_val: ILIKE value (e.g. '681')
+    """
+    if filter_col and filter_val:
         sql = (
             f'SELECT "FIELD", COUNT(*) AS cnt FROM {source_table} '
-            f'WHERE "FILENAME" ILIKE %s GROUP BY "FIELD" ORDER BY cnt DESC'
+            f'WHERE {filter_col} ILIKE %s GROUP BY "FIELD" ORDER BY "FIELD" ASC'
         )
-        rows = conn.execute_query(sql, (f"%{filename_filter}%",))
+        rows = conn.execute_query(sql, (f"%{filter_val}%",))
     else:
         sql = (
             f'SELECT "FIELD", COUNT(*) AS cnt FROM {source_table} '
-            f'GROUP BY "FIELD" ORDER BY cnt DESC'
+            f'GROUP BY "FIELD" ORDER BY "FIELD" ASC'
         )
         rows = conn.execute_query(sql)
     return [(str(r["FIELD"]), int(r["cnt"])) for r in rows if r.get("FIELD")]
