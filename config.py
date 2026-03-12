@@ -34,6 +34,8 @@ class ApiDefaults:
     LOGIN_ENDPOINT: str = os.getenv("API_LOGIN_ENDPOINT", "/auth/login")
     LOGIN_EMAIL: str = os.getenv("API_LOGIN_EMAIL", "")
     LOGIN_PASSWORD: str = os.getenv("API_LOGIN_PASSWORD", "")
+    CLIENT_ID: str = os.getenv("API_CLIENT_ID", "")
+    CLIENT_SECRET: str = os.getenv("API_CLIENT_SECRET", "")
 
 
 AUDIT_OUTPUT_DIR: Path = Path(os.getenv("AUDIT_OUTPUT_DIR", "/tmp/crossmigrate_audits"))

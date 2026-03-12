@@ -85,6 +85,44 @@ class ApiClient:
             logger.error(f"Login error: {exc}")
             return False, str(exc)
 
+    def login_service_account(self, client_id: str, client_secret: str) -> tuple[bool, str]:
+        """Obtain a Bearer token via the service-account endpoint.
+
+        POST /api/v1/service-accounts/token  {client_id, client_secret}
+
+        Returns:
+            (success, message)
+        """
+        url = f"{self._base_url}{self._api_version}/service-accounts/token"
+        try:
+            resp = requests.post(
+                url,
+                json={"client_id": client_id, "client_secret": client_secret},
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            token = (
+                data.get("access_token")
+                or data.get("token")
+                or (data.get("data") or {}).get("access_token")
+                or (data.get("data") or {}).get("token")
+            )
+            if not token:
+                return False, f"Token introuvable dans la réponse : {list(data.keys())}"
+            self._token = token
+            self._session.headers.update({"Authorization": f"Bearer {token}"})
+            logger.info(f"Service account authenticated to {self._base_url}")
+            return True, "Compte de service authentifié ✓"
+        except requests.HTTPError as exc:
+            msg = f"HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+            logger.error(f"Service account login failed: {msg}")
+            return False, msg
+        except Exception as exc:
+            logger.error(f"Service account login error: {exc}")
+            return False, str(exc)
+
     def test_connection(self) -> tuple[bool, str]:
         """Verify the token works by calling a lightweight endpoint."""
         if not self._token:
@@ -128,6 +166,10 @@ class ApiClient:
 
     def is_configured(self) -> bool:
         return bool(self._base_url and self._token)
+
+    @property
+    def session(self) -> requests.Session:
+        return self._session
 
     @property
     def base_url(self) -> str:
