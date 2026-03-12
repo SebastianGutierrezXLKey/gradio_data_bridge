@@ -9,3 +9,4 @@ build/
 .DS_Store
 /tmp/crossmigrate_audits/
 audit/scripts/output/
+audit/mig_results/
