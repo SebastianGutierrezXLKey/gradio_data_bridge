@@ -20,6 +20,7 @@ from ui.callbacks import (
     run_migration,
     save_column_mapping,
     save_value_mapping,
+    ss_get_source_columns,
     ss_load_source_fields,
     ss_load_units_api,
     ss_load_units_db,
@@ -634,10 +635,12 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
                     scale=1,
                 )
             with gr.Row():
-                ss_filter_col = gr.Textbox(
+                ss_filter_col = gr.Dropdown(
                     label="Colonne source pour filtrer",
+                    choices=['"FILENAME"', '"FIELD"'],
                     value='"FILENAME"',
-                    placeholder='ex: "FILENAME" ou "FIELD" ou properties->>\'key\'',
+                    allow_custom_value=True,
+                    interactive=True,
                     scale=2,
                 )
                 ss_filename_filter = gr.Textbox(
@@ -645,6 +648,7 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
                     placeholder="ex: 681",
                     scale=2,
                 )
+                ss_refresh_cols_btn = gr.Button("🔄", size="sm", scale=0)
             with gr.Row():
                 ss_lab_name = gr.Textbox(
                     label="Nom du laboratoire (LAB_NAME)",
@@ -672,9 +676,12 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
             )
 
             with gr.Row():
-                units_filter_col = gr.Textbox(
+                units_filter_col = gr.Dropdown(
                     label="Filtrer par colonne",
-                    placeholder="ex: name, unit_type, properties->>'zone'",
+                    choices=["name", "unit_type"],
+                    value=None,
+                    allow_custom_value=True,
+                    interactive=True,
                     scale=2,
                 )
                 units_filter_val = gr.Textbox(
@@ -797,6 +804,22 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
             outputs=[api_units_section, db_units_section],
         )
 
+        # Refresh source column dropdown when table changes or button clicked
+        def _refresh_cols(source_table, state):
+            cols = ss_get_source_columns(source_table, state)
+            return gr.update(choices=cols, value=cols[0] if cols else None)
+
+        ss_source_table.change(
+            fn=_refresh_cols,
+            inputs=[ss_source_table, app_state],
+            outputs=[ss_filter_col],
+        )
+        ss_refresh_cols_btn.click(
+            fn=_refresh_cols,
+            inputs=[ss_source_table, app_state],
+            outputs=[ss_filter_col],
+        )
+
         # Load source fields → populate mapping rows (sorted alphabetically)
         def _load_source_fields(source_table, filter_col, filter_val, state):
             fields, status = ss_load_source_fields(source_table, filter_col, filter_val, state)
@@ -841,12 +864,19 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
                     result.append(u)
             return result
 
-        # Load units from API → update all dropdowns
+        def _unit_col_choices(units: list[dict]) -> list[str]:
+            """Extract column names from the first unit dict."""
+            if not units:
+                return ["name", "unit_type"]
+            return list(units[0].keys())
+
+        # Load units from API → update all dropdowns + populate filter col dropdown
         def _load_units_api(state, label_col):
             units, status = ss_load_units_api(state)
             choices = _units_to_choices(units, label_col)
+            col_choices = _unit_col_choices(units)
             dd_updates = [gr.update(choices=choices) for _ in range(MAX_SS_ROWS)]
-            return [status, units] + dd_updates
+            return [status, units, gr.update(choices=col_choices)] + dd_updates
 
         def _units_to_choices(units: list[dict], label_col: str) -> list[tuple[str, str]]:
             result = []
@@ -861,7 +891,7 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
         ss_load_units_btn.click(
             fn=lambda state, col: _load_units_api(state, col),
             inputs=[app_state, ss_sql_label_col],
-            outputs=[ss_units_status, ss_units_state] + unit_dropdowns,
+            outputs=[ss_units_status, ss_units_state, units_filter_col] + unit_dropdowns,
         )
 
         # Apply client-side filter on loaded units
@@ -880,16 +910,15 @@ def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
         # Execute SQL → update all dropdowns
         def _exec_sql_units(sql, label_col, state):
             rows, status = ss_load_units_db(sql, state)
-            # Update label_col dropdown with available columns
             cols = list(rows[0].keys()) if rows else ["name"]
             choices = _units_to_choices(rows, label_col)
             dd_updates = [gr.update(choices=choices) for _ in range(MAX_SS_ROWS)]
-            return [status, rows, gr.update(choices=cols)] + dd_updates
+            return [status, rows, gr.update(choices=cols), gr.update(choices=cols)] + dd_updates
 
         ss_exec_sql_btn.click(
             fn=_exec_sql_units,
             inputs=[ss_sql_editor, ss_sql_label_col, app_state],
-            outputs=[ss_units_status, ss_units_state, ss_sql_label_col] + unit_dropdowns,
+            outputs=[ss_units_status, ss_units_state, ss_sql_label_col, units_filter_col] + unit_dropdowns,
         )
 
         # Re-populate dropdowns when label column changes
