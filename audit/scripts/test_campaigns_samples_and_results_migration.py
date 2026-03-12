@@ -259,6 +259,55 @@ def field_to_zone_name_2(field_value: str) -> str | None:
     return f"{sample_no}_{field}"
 
 
+def find_unit_entry(
+    raw_field: str,
+    unit_lookup: dict[str, dict],
+    match_mode: str = "auto",
+) -> tuple[str | None, dict | None]:
+    """Try multiple strategies to match raw_field to a unit entry.
+
+    Strategies tried in order:
+      1. Invert on '_'         FR01_5 → 5_FR01
+      2. Normalize '-'→'_' then invert   103-6 → 103_6 → 6_103
+      3. Normalized direct     103-6 → 103_6
+      4. Raw direct            103-6
+      5. ILIKE-style contains  "103_6" in "103_6_103"  (auto/contains only)
+
+    match_mode: "auto" (1-5), "exact" (1-4 only), "contains" (5 only)
+
+    Returns (matched_key, entry) or (None, None).
+    """
+    if not raw_field:
+        return None, None
+
+    normalized = raw_field.replace("-", "_").replace(" ", "_")
+    candidates: list[str] = []
+
+    if match_mode in ("auto", "exact"):
+        for key in [
+            field_to_zone_name_2(raw_field),
+            field_to_zone_name_2(normalized),
+            normalized,
+            raw_field,
+        ]:
+            if key and key not in candidates:
+                candidates.append(key)
+
+        for key in candidates:
+            entry = unit_lookup.get(key)
+            if entry:
+                return key, entry
+
+    if match_mode in ("auto", "contains"):
+        field_lower = normalized.lower()
+        for key, entry in unit_lookup.items():
+            key_lower = key.lower()
+            if field_lower in key_lower or key_lower in field_lower:
+                return key, entry
+
+    return None, None
+
+
 # ---------------------------------------------------------------------------
 # Pre-flight API lookups
 # ---------------------------------------------------------------------------
@@ -484,6 +533,7 @@ async def upgrade(
     filename_filter: str | None,
     output_file: Path,
     dry_run: bool,
+    field_match: str = "auto",
 ) -> None:
     # Pre-fetch existing campaigns to avoid duplicates across runs
     print_step("UPGRADE - Pre-fetching existing campaigns")
@@ -506,16 +556,13 @@ async def upgrade(
     for i, row in enumerate(rows, 1):
         source_id = str(row.get("id", i))
         raw_field = str(row.get("FIELD") or "")
-        zone_name_2 = field_to_zone_name_2(raw_field)
 
-        if not zone_name_2:
-            print_warning(f"[{i}/{len(rows)}] source_id={source_id} — cannot parse FIELD={raw_field!r}, skipping")
-            skipped += 1
-            continue
-
-        unit_entry = unit_lookup.get(zone_name_2)
+        zone_name_2, unit_entry = find_unit_entry(raw_field, unit_lookup, field_match)
         if not unit_entry:
-            print_warning(f"[{i}/{len(rows)}] source_id={source_id} — zone_name_2={zone_name_2!r} not in mapping, skipping")
+            print_warning(
+                f"[{i}/{len(rows)}] source_id={source_id} — "
+                f"FIELD={raw_field!r} not matched (mode={field_match}), skipping"
+            )
             skipped += 1
             continue
 
@@ -760,6 +807,18 @@ Examples:
         default=None,
         help="API login password (default: API_LOGIN_PASSWORD from .env)",
     )
+    parser.add_argument(
+        "--field-match",
+        choices=["auto", "exact", "contains"],
+        default="auto",
+        dest="field_match",
+        help=(
+            "Strategy to match FIELD to sampling unit (default: auto). "
+            "'exact': inversion + direct only. "
+            "'contains': ILIKE-style substring only. "
+            "'auto': exact first, then contains as fallback."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -876,6 +935,7 @@ Examples:
             filename_filter=args.filename_filter,
             output_file=args.output_file,
             dry_run=args.dry_run,
+            field_match=args.field_match,
         )
         print_step("COMPLETE")
         print_success("Migration completed successfully!")
