@@ -331,11 +331,14 @@ def ss_manage_lab(
 
 def ss_load_source_fields(
     source_table: str,
-    filename_filter: str,
+    filter_col: str,
+    filter_val: str,
     state: dict,
 ) -> tuple[list[tuple[str, int]], str]:
-    """Load distinct FIELD values from the source table.
+    """Load distinct FIELD values from the source table, sorted alphabetically.
 
+    filter_col: column expression (e.g. '"FILENAME"') — empty = no filter
+    filter_val: ILIKE value — empty = no filter
     Returns (field_list, status_message)
     """
     from audit.scripts.soil_sampling_runner import fetch_distinct_fields
@@ -347,7 +350,9 @@ def ss_load_source_fields(
         return [], "❌ Veuillez saisir le nom de la table source."
     try:
         fields = fetch_distinct_fields(
-            conn, source_table, filename_filter.strip() or None
+            conn, source_table,
+            filter_col.strip() or None,
+            filter_val.strip() or None,
         )
         return fields, f"✅ {len(fields)} valeur(s) FIELD distincte(s) trouvées."
     except Exception as exc:
