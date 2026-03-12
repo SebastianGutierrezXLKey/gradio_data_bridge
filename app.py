@@ -12,6 +12,7 @@ from ui.tabs import (
     build_tab_connexion,
     build_tab_migration,
     build_tab_mapping,
+    build_tab_soil_sampling,
     build_tab_visualisation,
 )
 
@@ -26,7 +27,8 @@ def build_app() -> gr.Blocks:
             # CrossMigrate
             **Migration de données PostgreSQL → PostgreSQL** avec mapping manuel et audit JSON.
 
-            > Suivez les 4 onglets dans l'ordre : **Connexion → Visualisation → Mapping → Migration**
+            > Pour la migration générale : **Connexion → Visualisation → Mapping → Migration**
+            > Pour la migration Soil Sampling xlhub : **Connexion → Migration Soil Sampling**
             """
         )
 
@@ -47,6 +49,9 @@ def build_app() -> gr.Blocks:
 
         # Tab 4
         build_tab_migration(app_state, src_table_dd, tgt_table_dd)
+
+        # Tab 5 — Soil Sampling Migration
+        build_tab_soil_sampling(app_state)
 
     return demo
 
