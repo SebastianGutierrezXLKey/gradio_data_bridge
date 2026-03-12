@@ -528,6 +528,7 @@ async def upgrade(
     conn: asyncpg.Connection,
     session: requests.Session,
     unit_lookup: dict[str, str],
+    manual_mapping: dict[str, str],
     lab_id: str,
     limit: int,
     filename_filter: str | None,
@@ -557,14 +558,24 @@ async def upgrade(
         source_id = str(row.get("id", i))
         raw_field = str(row.get("FIELD") or "")
 
-        zone_name_2, unit_entry = find_unit_entry(raw_field, unit_lookup, field_match)
-        if not unit_entry:
-            print_warning(
-                f"[{i}/{len(rows)}] source_id={source_id} — "
-                f"FIELD={raw_field!r} not matched (mode={field_match}), skipping"
+        # Manual override takes priority
+        if raw_field in manual_mapping:
+            unit_id_override = str(manual_mapping[raw_field])
+            unit_entry = next(
+                (e for e in unit_lookup.values() if str(e.get("target_api_id")) == unit_id_override),
+                {"target_api_id": unit_id_override, "unit_type": "manual"},
             )
-            skipped += 1
-            continue
+            zone_name_2 = raw_field
+            print_info(f"[{i}/{len(rows)}] source_id={source_id} — FIELD={raw_field!r} → manual override unit_id={unit_id_override}")
+        else:
+            zone_name_2, unit_entry = find_unit_entry(raw_field, unit_lookup, field_match)
+            if not unit_entry:
+                print_warning(
+                    f"[{i}/{len(rows)}] source_id={source_id} — "
+                    f"FIELD={raw_field!r} not matched (mode={field_match}), skipping"
+                )
+                skipped += 1
+                continue
 
         sampling_unit_id = str(unit_entry["target_api_id"])
         unit_type = unit_entry.get("unit_type", "unknown")
@@ -819,6 +830,17 @@ Examples:
             "'auto': exact first, then contains as fallback."
         ),
     )
+    parser.add_argument(
+        "--manual-mapping-file",
+        type=Path,
+        default=None,
+        dest="manual_mapping_file",
+        help=(
+            'JSON file with explicit FIELD → unit_id overrides. '
+            'Format: {"11CD-4 5": "1594", "110B-2": "1525"}. '
+            "Checked before any automatic matching."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -895,6 +917,15 @@ Examples:
     points_count = sum(1 for e in unit_lookup.values() if e.get("unit_type") == "point")
     print_success(f"Loaded {len(unit_lookup)} entries ({zones_count} zones, {points_count} points)")
 
+    # Load manual overrides (FIELD → unit_id for edge cases)
+    manual_mapping: dict[str, str] = {}
+    if args.manual_mapping_file and args.manual_mapping_file.exists():
+        with open(args.manual_mapping_file, encoding="utf-8") as _f:
+            manual_mapping = json.load(_f)
+        print_success(f"Loaded {len(manual_mapping)} manual mapping override(s) from {args.manual_mapping_file}")
+    elif args.manual_mapping_file:
+        print_warning(f"Manual mapping file not found: {args.manual_mapping_file}")
+
     # Pre-flight: resolve lab_id
     if not args.dry_run:
         if not LAB_NAME:
@@ -930,6 +961,7 @@ Examples:
             conn=conn,
             session=session,
             unit_lookup=unit_lookup,
+            manual_mapping=manual_mapping,
             lab_id=lab_id,
             limit=args.limit,
             filename_filter=args.filename_filter,
