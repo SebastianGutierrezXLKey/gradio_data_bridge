@@ -20,6 +20,10 @@ from ui.callbacks import (
     run_migration,
     save_column_mapping,
     save_value_mapping,
+    ss_load_source_fields,
+    ss_load_units_api,
+    ss_load_units_db,
+    ss_run_migration,
     validate_current_mapping,
 )
 from ui.components import db_connection_block, migration_log_area
@@ -84,7 +88,7 @@ def build_tab_connexion(app_state: gr.State) -> None:
         with gr.Accordion("🔌 Configuration API (mode écriture via API)", open=False):
             gr.Markdown(
                 "Configurez ici le client API xlhub pour envoyer les données "
-                "via les endpoints REST au lieu d'un INSERT direct."
+                "via les endpoints REST."
             )
             with gr.Row():
                 api_base_url = gr.Textbox(
@@ -93,30 +97,74 @@ def build_tab_connexion(app_state: gr.State) -> None:
                 api_version = gr.Textbox(
                     label="Version API", value=ApiDefaults.VERSION, scale=1
                 )
-            api_token = gr.Textbox(
-                label="Token Bearer (si déjà obtenu)",
-                value=ApiDefaults.TOKEN,
-                type="password",
-                info="Laissez vide pour vous connecter via email/mot de passe ci-dessous.",
+
+            auth_mode_radio = gr.Radio(
+                choices=["Token Bearer", "Compte de service", "Email / Mot de passe"],
+                value="Token Bearer" if ApiDefaults.TOKEN else (
+                    "Compte de service" if ApiDefaults.CLIENT_ID else "Email / Mot de passe"
+                ),
+                label="Mode d'authentification",
             )
-            with gr.Row():
-                api_login_endpoint = gr.Textbox(
-                    label="Endpoint de login", value=ApiDefaults.LOGIN_ENDPOINT, scale=1
+
+            # Section Token Bearer
+            with gr.Column(visible=bool(ApiDefaults.TOKEN or not (ApiDefaults.CLIENT_ID or ApiDefaults.LOGIN_EMAIL))) as token_section:
+                api_token = gr.Textbox(
+                    label="Token Bearer",
+                    value=ApiDefaults.TOKEN,
+                    type="password",
                 )
-                api_email = gr.Textbox(
-                    label="Email", value=ApiDefaults.LOGIN_EMAIL, scale=2
-                )
-                api_password = gr.Textbox(
-                    label="Mot de passe", value=ApiDefaults.LOGIN_PASSWORD,
-                    type="password", scale=2
-                )
+
+            # Section Compte de service
+            with gr.Column(visible=bool(ApiDefaults.CLIENT_ID)) as service_account_section:
+                with gr.Row():
+                    api_client_id = gr.Textbox(
+                        label="Client ID",
+                        value=ApiDefaults.CLIENT_ID,
+                        scale=1,
+                    )
+                    api_client_secret = gr.Textbox(
+                        label="Client Secret",
+                        value=ApiDefaults.CLIENT_SECRET,
+                        type="password",
+                        scale=1,
+                    )
+
+            # Section Email / Mot de passe
+            with gr.Column(visible=bool(ApiDefaults.LOGIN_EMAIL and not ApiDefaults.TOKEN and not ApiDefaults.CLIENT_ID)) as email_section:
+                with gr.Row():
+                    api_login_endpoint = gr.Textbox(
+                        label="Endpoint de login", value=ApiDefaults.LOGIN_ENDPOINT, scale=1
+                    )
+                    api_email = gr.Textbox(
+                        label="Email", value=ApiDefaults.LOGIN_EMAIL, scale=2
+                    )
+                    api_password = gr.Textbox(
+                        label="Mot de passe", value=ApiDefaults.LOGIN_PASSWORD,
+                        type="password", scale=2
+                    )
+
             api_connect_btn = gr.Button("🔑 Connecter / Tester l'API", variant="secondary")
             api_status = gr.HTML('<span style="color:#888">— API non configurée</span>')
+
+        # Show/hide auth sections based on radio
+        def _toggle_auth_sections(mode):
+            return (
+                gr.update(visible=(mode == "Token Bearer")),
+                gr.update(visible=(mode == "Compte de service")),
+                gr.update(visible=(mode == "Email / Mot de passe")),
+            )
+
+        auth_mode_radio.change(
+            fn=_toggle_auth_sections,
+            inputs=[auth_mode_radio],
+            outputs=[token_section, service_account_section, email_section],
+        )
 
         api_connect_btn.click(
             fn=handle_api_connect,
             inputs=[
-                api_base_url, api_version, api_token,
+                api_base_url, api_version, auth_mode_radio,
+                api_token, api_client_id, api_client_secret,
                 api_login_endpoint, api_email, api_password,
                 app_state,
             ],
@@ -499,3 +547,344 @@ def build_tab_migration(
             outputs=[log_box, result_row, audit_file, summary_md],
             show_progress="full",
         )
+
+
+# ---------------------------------------------------------------------------
+# Tab 5 — Soil Sampling Migration
+# ---------------------------------------------------------------------------
+
+MAX_SS_ROWS = 100  # Maximum distinct FIELD values supported
+
+
+def build_tab_soil_sampling(app_state: gr.State) -> None:  # noqa: C901
+    """Gradio tab for the soil sampling campaigns/samples/results migration."""
+    import json as _json
+    from config import ApiDefaults
+
+    with gr.Tab("5 · Migration Soil Sampling"):
+        gr.Markdown(
+            "## Migration Soil Sampling\n"
+            "Migrez `xlkey.temp_analyses` → campagnes, imports, échantillons et résultats de lab."
+        )
+
+        # ----------------------------------------------------------------
+        # Section 1 — Configuration
+        # ----------------------------------------------------------------
+        with gr.Accordion("⚙️ Configuration", open=True):
+            with gr.Row():
+                ss_source_table = gr.Textbox(
+                    label="Table source",
+                    value="xlkey.temp_analyses",
+                    scale=2,
+                )
+                ss_filename_filter = gr.Textbox(
+                    label="Filtre FILENAME (ILIKE)",
+                    placeholder="ex: 681",
+                    scale=1,
+                )
+                ss_limit = gr.Number(
+                    label="Limite de lignes",
+                    value=5,
+                    precision=0,
+                    scale=1,
+                )
+            with gr.Row():
+                ss_lab_name = gr.Textbox(
+                    label="Nom du laboratoire (LAB_NAME)",
+                    value=import_env_lab_name(),
+                    scale=2,
+                )
+                ss_output_dir = gr.Textbox(
+                    label="Dossier de sortie",
+                    value="audit/output",
+                    scale=2,
+                )
+                ss_dry_run = gr.Checkbox(label="Mode Dry Run", value=True)
+
+            ss_load_fields_btn = gr.Button("🔍 Charger les données source", variant="secondary")
+            ss_fields_status = gr.Markdown("")
+
+        # ----------------------------------------------------------------
+        # Section 2 — Source des unités
+        # ----------------------------------------------------------------
+        with gr.Accordion("🔗 Source des unités d'échantillonnage", open=True):
+            units_source_radio = gr.Radio(
+                choices=["Via API", "Via BD cible (SQL)"],
+                value="Via API",
+                label="Source des unités",
+            )
+
+            with gr.Column(visible=True) as api_units_section:
+                ss_load_units_btn = gr.Button("📥 Charger les unités depuis l'API", variant="secondary")
+
+            with gr.Column(visible=False) as db_units_section:
+                ss_sql_editor = gr.Code(
+                    label="Requête SQL (sur la BD cible)",
+                    value=(
+                        "SELECT id, name, unit_type\n"
+                        "FROM public.sampling_units\n"
+                        "WHERE deleted_at IS NULL\n"
+                        "ORDER BY name ASC"
+                    ),
+                    language="sql",
+                )
+                with gr.Row():
+                    ss_sql_label_col = gr.Dropdown(
+                        label="Colonne à afficher dans les listes déroulantes",
+                        choices=["name"],
+                        value="name",
+                        interactive=True,
+                        scale=2,
+                    )
+                    ss_exec_sql_btn = gr.Button("▶ Exécuter la requête", scale=1)
+
+            ss_units_status = gr.Markdown("")
+            # Hidden state holding the units list
+            ss_units_state = gr.State(value=[])
+
+        # ----------------------------------------------------------------
+        # Section 3 — Mapping des unités
+        # ----------------------------------------------------------------
+        mapping_area = gr.Column(visible=False)
+        field_rows: list[gr.Row] = []
+        unit_dropdowns: list[gr.Dropdown] = []
+        label_textboxes: list[gr.Textbox] = []
+
+        with mapping_area:
+            gr.Markdown("### Mapping FIELD → unité cible")
+            gr.Markdown(
+                "Pour chaque valeur distincte de `FIELD` dans la table source, "
+                "sélectionnez l'unité d'échantillonnage cible et personnalisez le `sample_label`."
+            )
+            with gr.Row():
+                ss_autofill_btn = gr.Button(
+                    "✏️ Remplir sample_label avec valeur FIELD", size="sm", scale=1
+                )
+                ss_mapping_status = gr.Markdown("")
+
+            for i in range(MAX_SS_ROWS):
+                with gr.Row(visible=False) as row:
+                    gr.Markdown(f"**—**", elem_id=f"ss_field_label_{i}")  # placeholder
+                    unit_dd = gr.Dropdown(
+                        label="Unité cible",
+                        choices=[],
+                        interactive=True,
+                        scale=2,
+                    )
+                    label_tb = gr.Textbox(
+                        label="sample_label",
+                        placeholder="ex: FR01_1",
+                        scale=2,
+                    )
+                field_rows.append(row)
+                unit_dropdowns.append(unit_dd)
+                label_textboxes.append(label_tb)
+
+            # Hidden state holding per-row FIELD values
+            ss_field_values_state = gr.State(value=[])
+
+        # ----------------------------------------------------------------
+        # Section 4 — Exécution
+        # ----------------------------------------------------------------
+        with gr.Row():
+            ss_run_dry_btn = gr.Button("🔍 Lancer Dry Run", variant="secondary", scale=1)
+            ss_run_btn = gr.Button("🚀 Lancer la migration", variant="primary", scale=1)
+
+        ss_log_box = gr.Textbox(
+            label="Journal",
+            lines=25,
+            max_lines=200,
+            interactive=False,
+        )
+
+        # ----------------------------------------------------------------
+        # Section 5 — Résultats
+        # ----------------------------------------------------------------
+        with gr.Row(visible=False) as ss_result_row:
+            ss_json_file = gr.File(label="📄 JSON de migration", interactive=False)
+            ss_log_file = gr.File(label="📝 Log texte", interactive=False)
+        ss_summary_md = gr.Markdown("")
+
+        # ----------------------------------------------------------------
+        # Internal state for mapping JSON
+        # ----------------------------------------------------------------
+        ss_mapping_json = gr.State(value="{}")
+
+        # ================================================================
+        # Callbacks
+        # ================================================================
+
+        # Toggle units source sections
+        def _toggle_units_source(mode):
+            return (
+                gr.update(visible=(mode == "Via API")),
+                gr.update(visible=(mode == "Via BD cible (SQL)")),
+            )
+
+        units_source_radio.change(
+            fn=_toggle_units_source,
+            inputs=[units_source_radio],
+            outputs=[api_units_section, db_units_section],
+        )
+
+        # Load source fields → populate mapping rows
+        def _load_source_fields(source_table, filename_filter, state):
+            fields, status = ss_load_source_fields(source_table, filename_filter, state)
+            n = len(fields)
+            row_updates = []
+            field_labels = []
+            for i in range(MAX_SS_ROWS):
+                if i < n:
+                    field_val, count = fields[i]
+                    row_updates.append(gr.update(visible=True))
+                    field_labels.append(field_val)
+                else:
+                    row_updates.append(gr.update(visible=False))
+            return (
+                [gr.update(visible=n > 0), status, field_labels]
+                + row_updates
+            )
+
+        ss_load_fields_btn.click(
+            fn=_load_source_fields,
+            inputs=[ss_source_table, ss_filename_filter, app_state],
+            outputs=[mapping_area, ss_fields_status, ss_field_values_state] + field_rows,
+        )
+
+        # Load units from API → update all dropdowns
+        def _load_units_api(state, label_col):
+            units, status = ss_load_units_api(state)
+            choices = _units_to_choices(units, label_col)
+            dd_updates = [gr.update(choices=choices) for _ in range(MAX_SS_ROWS)]
+            return [status, units] + dd_updates
+
+        def _units_to_choices(units: list[dict], label_col: str) -> list[tuple[str, str]]:
+            result = []
+            for u in units:
+                uid = str(u.get("id", ""))
+                label = str(u.get(label_col) or u.get("name") or uid)
+                unit_type = u.get("unit_type", "")
+                display = f"[{uid}] {label}" + (f" ({unit_type})" if unit_type else "")
+                result.append((display, uid))
+            return result
+
+        ss_load_units_btn.click(
+            fn=lambda state, col: _load_units_api(state, col),
+            inputs=[app_state, ss_sql_label_col],
+            outputs=[ss_units_status, ss_units_state] + unit_dropdowns,
+        )
+
+        # Execute SQL → update all dropdowns
+        def _exec_sql_units(sql, label_col, state):
+            rows, status = ss_load_units_db(sql, state)
+            # Update label_col dropdown with available columns
+            cols = list(rows[0].keys()) if rows else ["name"]
+            choices = _units_to_choices(rows, label_col)
+            dd_updates = [gr.update(choices=choices) for _ in range(MAX_SS_ROWS)]
+            return [status, rows, gr.update(choices=cols)] + dd_updates
+
+        ss_exec_sql_btn.click(
+            fn=_exec_sql_units,
+            inputs=[ss_sql_editor, ss_sql_label_col, app_state],
+            outputs=[ss_units_status, ss_units_state, ss_sql_label_col] + unit_dropdowns,
+        )
+
+        # Re-populate dropdowns when label column changes
+        ss_sql_label_col.change(
+            fn=lambda col, units: [gr.update(choices=_units_to_choices(units, col)) for _ in range(MAX_SS_ROWS)],
+            inputs=[ss_sql_label_col, ss_units_state],
+            outputs=unit_dropdowns,
+        )
+
+        # Auto-fill sample_label with FIELD value
+        def _autofill_labels(field_values):
+            updates = []
+            for i in range(MAX_SS_ROWS):
+                if i < len(field_values):
+                    updates.append(gr.update(value=field_values[i]))
+                else:
+                    updates.append(gr.update())
+            return updates
+
+        ss_autofill_btn.click(
+            fn=_autofill_labels,
+            inputs=[ss_field_values_state],
+            outputs=label_textboxes,
+        )
+
+        # Build mapping JSON from current dropdown/textbox values
+        def _build_mapping_json(field_values, *dd_and_labels):
+            mid = len(dd_and_labels) // 2
+            unit_ids = dd_and_labels[:mid]
+            labels = dd_and_labels[mid:]
+            mapping = {}
+            for i, field_val in enumerate(field_values):
+                if i >= len(unit_ids):
+                    break
+                uid = unit_ids[i]
+                lbl = labels[i] if i < len(labels) else field_val
+                if uid:
+                    mapping[field_val] = {
+                        "unit_id": str(uid),
+                        "sample_label": str(lbl) if lbl else field_val,
+                    }
+            return _json.dumps(mapping, ensure_ascii=False)
+
+        # Run migration (dry run or real)
+        def _run(dry, source_table, filename_filter, limit, lab_name, output_dir,
+                 field_values, state, *dd_and_labels):
+            mapping_json = _build_mapping_json(field_values, *dd_and_labels)
+            log_acc = ""
+            json_path = None
+            log_path = None
+            for log_text, jp, lp in ss_run_migration(
+                source_table, filename_filter, limit, dry,
+                lab_name, output_dir, mapping_json, state,
+            ):
+                log_acc = log_text
+                if jp:
+                    json_path = jp
+                if lp:
+                    log_path = lp
+                yield (
+                    log_acc,
+                    gr.update(visible=False), None, None,
+                    "",
+                )
+            # Final update with files
+            has_files = bool(json_path or log_path)
+            yield (
+                log_acc,
+                gr.update(visible=has_files),
+                json_path,
+                log_path,
+                f"✅ Terminé. {('Fichiers sauvegardés.' if has_files else 'Dry run — aucun fichier écrit.')}",
+            )
+
+        common_run_inputs = [
+            ss_source_table, ss_filename_filter, ss_limit,
+            ss_lab_name, ss_output_dir,
+            ss_field_values_state, app_state,
+        ] + unit_dropdowns + label_textboxes
+
+        common_run_outputs = [
+            ss_log_box, ss_result_row, ss_json_file, ss_log_file, ss_summary_md,
+        ]
+
+        ss_run_dry_btn.click(
+            fn=lambda *args: _run(True, *args),
+            inputs=common_run_inputs,
+            outputs=common_run_outputs,
+        )
+
+        ss_run_btn.click(
+            fn=lambda *args: _run(False, *args),
+            inputs=common_run_inputs,
+            outputs=common_run_outputs,
+        )
+
+
+def import_env_lab_name() -> str:
+    """Read LAB_NAME from environment (best-effort)."""
+    import os
+    return os.getenv("LAB_NAME", "")

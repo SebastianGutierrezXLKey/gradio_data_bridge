@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Generator
 
 import gradio as gr
 import pandas as pd
@@ -215,26 +215,163 @@ def validate_current_mapping(
 def handle_api_connect(
     base_url: str,
     api_version: str,
+    auth_mode: str,
     token: str,
+    client_id: str,
+    client_secret: str,
     login_endpoint: str,
     email: str,
     password: str,
     state: dict,
 ) -> tuple[str, dict]:
-    """Configure the API client and return (html_badge, updated_state)."""
-    client = ApiClient()
-    client.configure(base_url, api_version, token)
+    """Configure the API client and return (html_badge, updated_state).
 
-    if not token and email:
-        success, message = client.login(login_endpoint, email, password)
-    else:
+    auth_mode: "Token Bearer" | "Compte de service" | "Email / Mot de passe"
+    """
+    client = ApiClient()
+    client.configure(base_url, api_version, token if auth_mode == "Token Bearer" else "")
+
+    if auth_mode == "Token Bearer":
         success, message = client.test_connection()
+    elif auth_mode == "Compte de service":
+        success, message = client.login_service_account(client_id, client_secret)
+    else:
+        success, message = client.login(login_endpoint, email, password)
 
     badge = connection_badge(success, message)
     if success:
         state = dict(state)
         state["api_client"] = client
     return badge, state
+
+
+# ---------------------------------------------------------------------------
+# Tab 5 — Soil Sampling Migration
+# ---------------------------------------------------------------------------
+
+def ss_load_source_fields(
+    source_table: str,
+    filename_filter: str,
+    state: dict,
+) -> tuple[list[tuple[str, int]], str]:
+    """Load distinct FIELD values from the source table.
+
+    Returns (field_list, status_message)
+    """
+    from audit.scripts.soil_sampling_runner import fetch_distinct_fields
+
+    conn = state.get("source_conn")
+    if conn is None or not conn.is_connected():
+        return [], "❌ Connexion source non établie."
+    if not source_table:
+        return [], "❌ Veuillez saisir le nom de la table source."
+    try:
+        fields = fetch_distinct_fields(
+            conn, source_table, filename_filter.strip() or None
+        )
+        return fields, f"✅ {len(fields)} valeur(s) FIELD distincte(s) trouvées."
+    except Exception as exc:
+        return [], f"❌ Erreur : {exc}"
+
+
+def ss_load_units_api(state: dict) -> tuple[list[dict], str]:
+    """Fetch sampling units from the xlhub API."""
+    from audit.scripts.soil_sampling_runner import fetch_units_from_api
+
+    api_client = state.get("api_client")
+    if not api_client or not api_client.is_configured():
+        return [], "❌ Client API non configuré."
+    try:
+        units = fetch_units_from_api(
+            api_client.session, api_client.base_url, api_client.api_version
+        )
+        return units, f"✅ {len(units)} unité(s) chargée(s) depuis l'API."
+    except Exception as exc:
+        return [], f"❌ Erreur API : {exc}"
+
+
+def ss_load_units_db(sql: str, state: dict) -> tuple[list[dict], str]:
+    """Execute a custom SQL query on the target DB to fetch sampling units."""
+    from audit.scripts.soil_sampling_runner import fetch_units_from_db
+
+    conn = state.get("target_conn")
+    if conn is None or not conn.is_connected():
+        return [], "❌ Connexion BD cible non établie."
+    if not sql.strip():
+        return [], "❌ Requête SQL vide."
+    try:
+        rows = fetch_units_from_db(conn, sql.strip())
+        return rows, f"✅ {len(rows)} unité(s) retournées par la requête SQL."
+    except Exception as exc:
+        return [], f"❌ Erreur SQL : {exc}"
+
+
+def ss_run_migration(
+    source_table: str,
+    filename_filter: str,
+    limit: int,
+    dry_run: bool,
+    lab_name: str,
+    output_dir_str: str,
+    unit_mapping_json: str,     # JSON string: {"FIELD": {"unit_id": "...", "sample_label": "..."}}
+    state: dict,
+) -> Generator[tuple[str, str | None, str | None], None, None]:
+    """Run the soil sampling migration; yields (log_text, json_path, log_path)."""
+    import json as _json
+    from pathlib import Path
+    from audit.scripts.soil_sampling_runner import run_migration
+
+    api_client = state.get("api_client")
+    source_conn = state.get("source_conn")
+
+    if not api_client or not api_client.is_configured():
+        yield "❌ Client API non configuré.", None, None
+        return
+    if not source_conn or not source_conn.is_connected():
+        yield "❌ Connexion source non établie.", None, None
+        return
+
+    try:
+        unit_mapping = _json.loads(unit_mapping_json) if unit_mapping_json else {}
+    except Exception:
+        yield "❌ Mapping invalide (JSON malformé).", None, None
+        return
+
+    if not unit_mapping:
+        yield "❌ Aucun mapping configuré.", None, None
+        return
+
+    output_dir = Path(output_dir_str.strip()) if output_dir_str.strip() else Path("audit/output")
+    log_accumulator: list[str] = []
+    json_path = None
+    log_path = None
+
+    for line in run_migration(
+        source_conn=source_conn,
+        api_session=api_client.session,
+        api_base=api_client.base_url,
+        api_version=api_client.api_version,
+        unit_mapping=unit_mapping,
+        lab_name=lab_name.strip(),
+        source_table=source_table.strip(),
+        filename_filter=filename_filter.strip() or None,
+        limit=int(limit),
+        dry_run=dry_run,
+        output_dir=output_dir,
+    ):
+        # Last line is a JSON completion signal
+        if line.startswith('{"json_path"'):
+            try:
+                result = _json.loads(line)
+                json_path = result.get("json_path")
+                log_path = result.get("log_path")
+            except Exception:
+                pass
+            continue
+        log_accumulator.append(line)
+        yield "\n".join(log_accumulator), None, None
+
+    yield "\n".join(log_accumulator), json_path, log_path
 
 
 # ---------------------------------------------------------------------------
