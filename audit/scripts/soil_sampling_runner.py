@@ -29,7 +29,7 @@ import requests
 LAB_RESULT_FIELD_MAP: dict[str, str] = {
     "PH": "ph_water",
     "PH_T": "ph_buffer",
-    "MO": "organic_matter_percent",
+    "M_O": "organic_matter_percent",
     "P": "phosphorus_kg_ha",
     "K": "potassium_kg_ha",
     "CA": "calcium_kg_ha",
@@ -389,6 +389,19 @@ def run_migration(
     yield log(f"\nChargement des lignes source depuis {source_table}...")
     rows = fetch_source_rows(source_conn, source_table, limit, filename_filter)
     yield log(f"✅ {len(rows)} lignes chargées")
+
+    # Null-field pre-flight check
+    yield log("\n=== VÉRIFICATION CHAMPS NULS ===")
+    null_counts = {
+        api_field: sum(1 for r in rows if r.get(src_col) is None)
+        for src_col, api_field in LAB_RESULT_FIELD_MAP.items()
+        if any(r.get(src_col) is None for r in rows)
+    }
+    if null_counts:
+        for api_field, count in null_counts.items():
+            yield log(f"⚠  {count}/{len(rows)} lignes ont {api_field!r} = null")
+    else:
+        yield log("✅ Tous les champs lab sont non-nuls")
 
     results: list[dict] = []
     succeeded = 0

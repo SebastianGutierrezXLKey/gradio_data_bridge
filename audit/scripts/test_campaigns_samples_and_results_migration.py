@@ -111,7 +111,7 @@ OUTPUT_DIR = Path(__file__).parent / "output"
 LAB_RESULT_FIELD_MAP = {
     "PH": "ph_water",
     "PH_T": "ph_buffer",
-    "MO": "organic_matter_percent",
+    "M_O": "organic_matter_percent",
     "P": "phosphorus_kg_ha",
     "K": "potassium_kg_ha",
     "CA": "calcium_kg_ha",
@@ -548,6 +548,19 @@ async def upgrade(
     print_step("UPGRADE - Fetching source rows")
     rows = await fetch_analyses(conn, limit, filename_filter)
     print_success(f"Fetched {len(rows)} rows from {SOURCE_TABLE}")
+
+    # Null-field pre-flight check
+    print_step("UPGRADE - Null field check")
+    null_counts = {
+        api_field: sum(1 for r in rows if r.get(src_col) is None)
+        for src_col, api_field in LAB_RESULT_FIELD_MAP.items()
+        if any(r.get(src_col) is None for r in rows)
+    }
+    if null_counts:
+        for api_field, count in null_counts.items():
+            print_warning(f"{count}/{len(rows)} rows have {api_field!r} = null")
+    else:
+        print_success("All lab fields are non-null")
 
     results: list[dict] = []
     succeeded = 0
