@@ -313,7 +313,11 @@ def find_unit_entry(
 # ---------------------------------------------------------------------------
 
 def prefetch_campaigns(session: requests.Session) -> dict[str, str]:
-    """Fetch all existing campaigns and return a lookup dict {name → campaign_id}."""
+    """Fetch all existing campaigns and return a lookup dict {filename_basename → campaign_id}.
+
+    Keyed by the basename of SOURCE_FILENAME stored in interpolation_params so that
+    deduplication aligns with the per-file import deduplication.
+    """
     url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/campaigns"
     resp = session.get(url, timeout=30)
     resp.raise_for_status()
@@ -321,7 +325,16 @@ def prefetch_campaigns(session: requests.Session) -> dict[str, str]:
     items = data.get("data") or []
     if not isinstance(items, list):
         items = []
-    return {str(c.get("name", "")): str(c["id"]) for c in items if c.get("id")}
+    result: dict[str, str] = {}
+    for c in items:
+        if not c.get("id"):
+            continue
+        params = c.get("interpolation_params") or {}
+        source_filename = str(params.get("SOURCE_FILENAME", ""))
+        key = source_filename.rsplit("/", 1)[-1] if source_filename else str(c.get("name", ""))
+        if key:
+            result[key] = str(c["id"])
+    return result
 
 
 def prefetch_imports(session: requests.Session) -> dict[str, str]:
@@ -595,6 +608,7 @@ async def upgrade(
 
         date_key = str(row.get("DATE_KEY") or "")
         filename = str(row.get("FILENAME") or "")
+        filename_basename = filename.rsplit("/", 1)[-1]
         sampling_date = row.get("sampling_date")
         campaign_name = f"Campaign {to_date_str(sampling_date) or to_date_str(date_key) or date_key}"
 
@@ -602,7 +616,7 @@ async def upgrade(
             print_info(
                 f"[{i}/{len(rows)}] DRY RUN source_id={source_id} "
                 f"zone_name_2={zone_name_2!r} unit_id={sampling_unit_id} unit_type={unit_type} "
-                f"campaign={campaign_name!r} file={filename.rsplit('/', 1)[-1]!r}"
+                f"campaign={campaign_name!r} file={filename_basename!r}"
             )
             succeeded += 1
             continue
@@ -610,13 +624,13 @@ async def upgrade(
         try:
             prefix = f"[{i}/{len(rows)}] source_id={source_id} ({unit_type})"
 
-            # Step 2 — Campaign (dedup by name, checked against pre-fetched + in-run cache)
-            if campaign_name not in campaign_cache:
+            # Step 2 — Campaign (dedup by filename, one campaign per source file)
+            if filename_basename not in campaign_cache:
                 campaign_id = post_campaign(session, row)
-                campaign_cache[campaign_name] = campaign_id
+                campaign_cache[filename_basename] = campaign_id
                 print_success(f"{prefix} Campaign CREATED  id={campaign_id}")
             else:
-                campaign_id = campaign_cache[campaign_name]
+                campaign_id = campaign_cache[filename_basename]
                 print_info(f"{prefix} Campaign REUSED   id={campaign_id}")
 
             # Step 3 — Import (dedup by FILENAME)
