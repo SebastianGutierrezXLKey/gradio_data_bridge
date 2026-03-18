@@ -145,7 +145,7 @@ def api_session_from_token(token: str) -> requests.Session:
 
 def api_session_from_client_credentials(client_id: str, client_secret: str) -> requests.Session:
     """Obtain a Bearer token via the service account endpoint and return an authenticated session."""
-    url = f"{API_BASE_URL}{API_VERSION}/service-accounts/token"
+    url = f"{API_BASE_URL}/api/v1/service-accounts/token"
     resp = requests.post(
         url,
         json={"client_id": client_id, "client_secret": client_secret},
@@ -220,7 +220,7 @@ def to_iso(value: Any) -> str | None:
 def load_unit_lookup(*mapping_files: Path) -> dict[str, dict]:
     """
     Load one or more sample units mapping files and merge into a single lookup dict.
-    Key: zone_name_2 (zones) or name (points).
+    Keys: zone_name_2 (zones), name (points), and sampling_name (zones only).
     Value: full entry dict including target_api_id, unit_type, source_table.
     Warns on key conflicts between files.
     """
@@ -242,6 +242,10 @@ def load_unit_lookup(*mapping_files: Path) -> dict[str, dict]:
                 )
                 continue
             combined[key] = entry
+            # Also index zones by sampling_name for direct FIELD == sampling_name matching
+            sn = entry.get("sampling_name", "")
+            if sn and sn not in combined:
+                combined[sn] = entry
     return combined
 
 
@@ -479,15 +483,14 @@ def post_sample(
     row: dict,
     sampling_unit_id: str,
     campaign_id: str,
-    raw_field: str,
+    sample_label: str,
 ) -> str:
     """Create a sample and return its ID."""
     sampling_date = row.get("sampling_date")
     date_key = row.get("DATE_KEY")
     sampled_at = to_iso(sampling_date) if sampling_date is not None else to_date_str(date_key)
     sent_to_lab_at = to_iso(row.get("INGESTED_AT"))
-    # sample_label format: [field]_[sample_no] e.g. "FR01_1"
-    sample_label = str(row.get("samp_name") or "").strip() or raw_field
+    sample_label = str(row.get("samp_name") or "").strip() or sample_label
 
     payload = {
         "sampling_unit_id": sampling_unit_id,
@@ -643,7 +646,8 @@ async def upgrade(
                 print_info(f"{prefix} Import   REUSED   id={import_id}")
 
             # Step 4 — Sample
-            sample_id = post_sample(session, row, sampling_unit_id, campaign_id, raw_field)
+            sample_label = unit_entry.get("sampling_name") or raw_field
+            sample_id = post_sample(session, row, sampling_unit_id, campaign_id, sample_label)
             print_success(f"{prefix} Sample   CREATED  id={sample_id}")
 
             # Step 5 — Lab result

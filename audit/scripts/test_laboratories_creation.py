@@ -111,7 +111,7 @@ def api_session_from_token(token: str) -> requests.Session:
 
 def api_session_from_client_credentials(client_id: str, client_secret: str) -> requests.Session:
     """Obtain a Bearer token via the service account endpoint and return an authenticated session."""
-    url = f"{API_BASE_URL}{API_VERSION}/service-accounts/token"
+    url = f"{API_BASE_URL}/api/v1/service-accounts/token"
     resp = requests.post(
         url,
         json={"client_id": client_id, "client_secret": client_secret},
