@@ -239,14 +239,15 @@ async def fetch_zones(
     conn: asyncpg.Connection, col_name: str, value: str | None
 ) -> list[dict]:
     """
-    Fetch sampling zones with a JOIN on xlkey.fields to build zone_name_2
+    Fetch sampling zones with a LEFT JOIN on xlkey.fields to build zone_name_2
     in [zone_name]_[field_name] format (e.g. '5_FR01') for campaign lookup.
+    Zones without a matching field fall back to zone_name alone as zone_name_2.
     """
     select_clause = """
         tz.id, tz.farm_id, tz.field_id, tz.year_key,
         tz.zone_name, tz.name, tz.sampling_name, tz.area,
         f.name AS field_name,
-        tz.zone_name || '_' || f.name AS zone_name_2,
+        CASE WHEN f.name IS NOT NULL THEN tz.zone_name || '_' || f.name ELSE tz.zone_name END AS zone_name_2,
         ST_AsGeoJSON(ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_CurveToLine(tz."geometry")), 3)))::json AS geometry
     """
 
@@ -260,7 +261,7 @@ async def fetch_zones(
             )
             SELECT {select_clause}
             FROM {SOURCE_TABLE} tz
-            JOIN {FIELDS_TABLE} f ON f.id = tz.field_id
+            LEFT JOIN {FIELDS_TABLE} f ON f.id = tz.field_id
             WHERE tz.farm_id IN (SELECT id FROM account_list)
         """
         param = int(value) if str(value).isdigit() else value
@@ -269,7 +270,7 @@ async def fetch_zones(
         query = f"""
             SELECT {select_clause}
             FROM {SOURCE_TABLE} tz
-            JOIN {FIELDS_TABLE} f ON f.id = tz.field_id
+            LEFT JOIN {FIELDS_TABLE} f ON f.id = tz.field_id
         """
         rows = await conn.fetch(query)
 
@@ -299,9 +300,9 @@ async def upgrade(
     zones = await fetch_zones(conn, col_name, value)
     print_success(f"Fetched {len(zones)} zones from source database")
 
-    # Build a set of (zone_name_2, FIELD_NAME) already present in the target API
+    # Build a name→id map of zones already present in the target API
     print_step("UPGRADE - Checking Existing Units in Target API")
-    existing_keys: set[str] = set()
+    existing_zones: dict[str, str] = {}  # zone_name_2 → target_api_id
     if not dry_run:
         try:
             url = f"{API_BASE_URL}{API_VERSION}{UNITS_ENDPOINT}"
@@ -313,8 +314,8 @@ async def upgrade(
                 existing_units = []
             for unit in existing_units:
                 if unit.get("unit_type") == "zone" and unit.get("name"):
-                    existing_keys.add(str(unit["name"]))
-            print_info(f"Found {len(existing_units)} existing units in API ({len(existing_keys)} zones by name)")
+                    existing_zones[str(unit["name"])] = str(unit["id"])
+            print_info(f"Found {len(existing_units)} existing units in API ({len(existing_zones)} zones by name)")
         except Exception as exc:
             print_warning(f"Could not fetch existing units (will proceed without duplicate check): {exc}")
     else:
@@ -344,9 +345,18 @@ async def upgrade(
             succeeded += 1
             continue
 
-        # Skip if already exists in target API
-        if zone_name_2 in existing_keys:
-            print_warning(f"[{i}/{len(zones)}] SKIP — already exists: zone_name_2={zone_name_2!r}")
+        # Skip if already exists in target API — but still include in mapping
+        if zone_name_2 in existing_zones:
+            existing_id = existing_zones[zone_name_2]
+            mapping.append({
+                "source_id": source_id,
+                "target_api_id": existing_id,
+                "field_id": field_id,
+                "zone_name_2": zone_name_2,
+                "unit_type": "zone",
+                "source_table": SOURCE_TABLE,
+            })
+            print_info(f"[{i}/{len(zones)}] SKIP — already exists: zone_name_2={zone_name_2!r} id={existing_id}")
             skipped += 1
             continue
 
