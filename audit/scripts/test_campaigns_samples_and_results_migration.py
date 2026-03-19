@@ -316,6 +316,31 @@ def find_unit_entry(
 # Pre-flight API lookups
 # ---------------------------------------------------------------------------
 
+def _paginate(session: requests.Session, url: str, params: dict | None = None) -> list[dict]:
+    """Fetch all pages from a paginated API endpoint."""
+    items: list[dict] = []
+    page = 1
+    while True:
+        p = dict(params or {})
+        p["page"] = page
+        p["size"] = 100
+        resp = session.get(url, params=p, timeout=30)
+        resp.raise_for_status()
+        raw = resp.json()
+        page_data = raw.get("data") or []
+        if isinstance(page_data, dict):
+            batch = page_data.get("items") or []
+            total = page_data.get("total", 0)
+        else:
+            batch = page_data if isinstance(page_data, list) else []
+            total = len(batch)
+        items.extend(batch)
+        if len(items) >= total or not batch:
+            break
+        page += 1
+    return items
+
+
 def prefetch_campaigns(session: requests.Session) -> dict[str, str]:
     """Fetch all existing campaigns and return a lookup dict {filename_basename → campaign_id}.
 
@@ -323,12 +348,7 @@ def prefetch_campaigns(session: requests.Session) -> dict[str, str]:
     deduplication aligns with the per-file import deduplication.
     """
     url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/campaigns"
-    resp = session.get(url, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    items = data.get("data") or []
-    if not isinstance(items, list):
-        items = []
+    items = _paginate(session, url)
     result: dict[str, str] = {}
     for c in items:
         if not c.get("id"):
@@ -344,13 +364,47 @@ def prefetch_campaigns(session: requests.Session) -> dict[str, str]:
 def prefetch_imports(session: requests.Session) -> dict[str, str]:
     """Fetch all existing imports and return a lookup dict {filename → import_id}."""
     url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/imports"
-    resp = session.get(url, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    items = data.get("data") or []
-    if not isinstance(items, list):
-        items = []
+    items = _paginate(session, url)
     return {str(imp.get("filename", "")): str(imp["id"]) for imp in items if imp.get("id")}
+
+
+def prefetch_samples(session: requests.Session, campaign_ids: list[str]) -> dict[tuple[str, str], str]:
+    """Fetch all samples for the given campaigns.
+    Returns {(sampling_unit_id, campaign_id): sample_id}.
+    """
+    url = f"{API_BASE_URL}{API_VERSION}/soil-sampling/samples"
+    result: dict[tuple[str, str], str] = {}
+    for campaign_id in campaign_ids:
+        items = _paginate(session, url, {"sampling_campaign_id": campaign_id})
+        for s in items:
+            if not s.get("id"):
+                continue
+            key = (str(s.get("sampling_unit_id", "")), str(campaign_id))
+            result[key] = str(s["id"])
+    return result
+
+
+def prefetch_lab_results(session: requests.Session, sample_ids: list[str]) -> dict[str, str]:
+    """Fetch all lab results for the given samples.
+    Returns {sample_id: lab_result_id}.
+    """
+    base = f"{API_BASE_URL}{API_VERSION}/soil-sampling/samples"
+    result: dict[str, str] = {}
+    for sample_id in sample_ids:
+        try:
+            resp = session.get(f"{base}/{sample_id}/results", timeout=15)
+            resp.raise_for_status()
+            raw = resp.json()
+            results_list = raw if isinstance(raw, list) else (
+                (raw.get("data") or []) if isinstance(raw.get("data"), list) else []
+            )
+            for r in results_list:
+                if r.get("id"):
+                    result[str(sample_id)] = str(r["id"])
+                    break  # one result per sample
+        except Exception:
+            pass
+    return result
 
 
 def get_lab_id(session: requests.Session, lab_name: str) -> str:
@@ -552,14 +606,16 @@ async def upgrade(
     dry_run: bool,
     field_match: str = "auto",
 ) -> None:
-    # Pre-fetch existing campaigns to avoid duplicates across runs
-    print_step("UPGRADE - Pre-fetching existing campaigns")
-    campaign_cache: dict[str, str] = prefetch_campaigns(session)  # name → campaign_id
+    # Pre-fetch existing records to avoid duplicates across runs
+    print_step("UPGRADE - Pre-fetching existing records")
+    campaign_cache: dict[str, str] = prefetch_campaigns(session)  # filename_basename → campaign_id
     print_success(f"Found {len(campaign_cache)} existing campaigns")
-
-    # Pre-fetch existing imports to avoid duplicates across runs
     import_cache: dict[str, str] = prefetch_imports(session)  # filename → import_id
     print_success(f"Found {len(import_cache)} existing imports")
+    sample_cache: dict[tuple[str, str], str] = prefetch_samples(session, list(campaign_cache.values()))
+    print_success(f"Found {len(sample_cache)} existing samples")
+    result_cache: dict[str, str] = prefetch_lab_results(session, list(sample_cache.values()))
+    print_success(f"Found {len(result_cache)} existing lab results")
 
     print_step("UPGRADE - Fetching source rows")
     rows = await fetch_analyses(conn, limit, filename_filter)
@@ -648,12 +704,23 @@ async def upgrade(
 
             # Step 4 — Sample
             sample_label = unit_entry.get("sampling_name") or raw_field
-            sample_id = post_sample(session, row, sampling_unit_id, campaign_id, sample_label)
-            print_success(f"{prefix} Sample   CREATED  id={sample_id}")
+            sample_key = (sampling_unit_id, campaign_id)
+            if sample_key in sample_cache:
+                sample_id = sample_cache[sample_key]
+                print_info(f"{prefix} Sample   REUSED   id={sample_id}")
+            else:
+                sample_id = post_sample(session, row, sampling_unit_id, campaign_id, sample_label)
+                sample_cache[sample_key] = sample_id
+                print_success(f"{prefix} Sample   CREATED  id={sample_id}")
 
             # Step 5 — Lab result
-            lab_result_id = post_lab_result(session, row, sample_id, import_id)
-            print_success(f"{prefix} LabResult CREATED id={lab_result_id}")
+            if sample_id in result_cache:
+                lab_result_id = result_cache[sample_id]
+                print_info(f"{prefix} LabResult REUSED  id={lab_result_id}")
+            else:
+                lab_result_id = post_lab_result(session, row, sample_id, import_id)
+                result_cache[sample_id] = lab_result_id
+                print_success(f"{prefix} LabResult CREATED id={lab_result_id}")
 
             results.append({
                 "source_id": source_id,
