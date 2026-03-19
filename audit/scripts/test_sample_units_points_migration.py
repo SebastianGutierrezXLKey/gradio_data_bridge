@@ -396,6 +396,87 @@ async def upgrade(
 
 
 # ---------------------------------------------------------------------------
+# Rebuild mapping (reconstruct mapping JSON from existing API units)
+# ---------------------------------------------------------------------------
+
+async def rebuild_mapping(
+    conn: asyncpg.Connection,
+    session: requests.Session,
+    col_name: str,
+    value: str | None,
+    prefix: str,
+    mapping_file: Path,
+) -> None:
+    print_step("REBUILD - Querying Source Database")
+    points = await fetch_points(conn, col_name, value)
+    print_success(f"Fetched {len(points)} points from source database")
+
+    print_step("REBUILD - Fetching Existing Units from API")
+    existing: list[dict] = []
+    page = 1
+    while True:
+        url = f"{API_BASE_URL}{API_VERSION}{UNITS_ENDPOINT}"
+        resp = session.get(url, params={"unit_type": "point", "page": page, "size": 100}, timeout=30)
+        resp.raise_for_status()
+        raw = resp.json()
+        page_data = raw.get("data") or []
+        if isinstance(page_data, dict):
+            batch = page_data.get("items") or []
+            total = page_data.get("total", 0)
+        else:
+            batch = page_data if isinstance(page_data, list) else []
+            total = len(batch)
+        existing.extend(batch)
+        if len(existing) >= total or not batch:
+            break
+        page += 1
+    print_success(f"Found {len(existing)} point units in API")
+
+    # Build lookup: name → unit
+    by_name: dict[str, dict] = {}
+    for unit in existing:
+        if unit.get("unit_type") != "point":
+            continue
+        name = unit.get("name") or ""
+        if name:
+            by_name[name] = unit
+
+    print_step("REBUILD - Matching source points to API units")
+    mapping: list[dict] = []
+    matched = 0
+    unmatched = 0
+
+    for i, row in enumerate(points, 1):
+        source_id = str(row.get("id", i))
+        raw_name = str(row.get("samp_name") or "")
+        name = transform_samp_name(raw_name, prefix)
+
+        unit = by_name.get(name)
+        if unit:
+            target_id = str(unit["id"])
+            mapping.append({
+                "source_id": source_id,
+                "target_api_id": target_id,
+                "samp_name_raw": raw_name,
+                "name": name,
+                "unit_type": "point",
+                "source_table": SOURCE_TABLE,
+            })
+            matched += 1
+        else:
+            print_warning(f"[{i}/{len(points)}] No match: source_id={source_id} name={name!r} (raw={raw_name!r})")
+            unmatched += 1
+
+    mapping_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(mapping_file, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, indent=2, ensure_ascii=False)
+    print_success(f"Mapping file saved: {mapping_file}")
+
+    print_step("REBUILD - Summary")
+    print_success(f"Source points: {len(points)} | Matched: {matched} | Unmatched: {unmatched}")
+
+
+# ---------------------------------------------------------------------------
 # Downgrade
 # ---------------------------------------------------------------------------
 
@@ -507,11 +588,16 @@ Examples:
         default=None,
         help="Path to the mapping JSON file. Upgrade: auto-generated with timestamp in output/. Downgrade: defaults to latest file in output/.",
     )
+    parser.add_argument(
+        "--rebuild-mapping",
+        action="store_true",
+        help="Rebuild the mapping JSON from existing API units without creating new ones",
+    )
 
     args = parser.parse_args()
 
     print_step("SETUP - Configuration")
-    mode = "DOWNGRADE" if args.downgrade else ("DRY RUN" if args.dry_run else "UPGRADE")
+    mode = "DOWNGRADE" if args.downgrade else ("REBUILD" if args.rebuild_mapping else ("DRY RUN" if args.dry_run else "UPGRADE"))
     print(f"   Mode    : {mode}")
     if not args.downgrade:
         print(f"   Filter  : {args.col_name} = '{args.value}    '" if args.value else "   Filter  : none (all points)")
@@ -573,17 +659,29 @@ Examples:
         print_error(f"Failed to connect to source database: {exc}")
 
     try:
-        await upgrade(
-            conn=conn,
-            session=session,
-            col_name=args.col_name,
-            value=args.value,
-            prefix=args.prefix,
-            mapping_file=args.mapping_file,
-            dry_run=args.dry_run,
-        )
-        print_step("COMPLETE")
-        print_success("Migration completed successfully!")
+        if args.rebuild_mapping:
+            await rebuild_mapping(
+                conn=conn,
+                session=session,
+                col_name=args.col_name,
+                value=args.value,
+                prefix=args.prefix,
+                mapping_file=args.mapping_file,
+            )
+            print_step("COMPLETE")
+            print_success("Mapping rebuilt successfully!")
+        else:
+            await upgrade(
+                conn=conn,
+                session=session,
+                col_name=args.col_name,
+                value=args.value,
+                prefix=args.prefix,
+                mapping_file=args.mapping_file,
+                dry_run=args.dry_run,
+            )
+            print_step("COMPLETE")
+            print_success("Migration completed successfully!")
     except Exception as exc:
         print_error(f"An unexpected error occurred: {exc}")
     finally:

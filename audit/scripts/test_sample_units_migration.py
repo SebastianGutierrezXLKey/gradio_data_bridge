@@ -400,6 +400,93 @@ async def upgrade(
 
 
 # ---------------------------------------------------------------------------
+# Rebuild mapping (reconstruct mapping JSON from existing API units)
+# ---------------------------------------------------------------------------
+
+async def rebuild_mapping(
+    conn: asyncpg.Connection,
+    session: requests.Session,
+    col_name: str,
+    value: str | None,
+    mapping_file: Path,
+) -> None:
+    print_step("REBUILD - Querying Source Database")
+    zones = await fetch_zones(conn, col_name, value)
+    print_success(f"Fetched {len(zones)} zones from source database")
+
+    print_step("REBUILD - Fetching Existing Units from API")
+    existing: list[dict] = []
+    page = 1
+    while True:
+        url = f"{API_BASE_URL}{API_VERSION}{UNITS_ENDPOINT}"
+        resp = session.get(url, params={"unit_type": "zone", "page": page, "size": 100}, timeout=30)
+        resp.raise_for_status()
+        raw = resp.json()
+        page_data = raw.get("data") or []
+        if isinstance(page_data, dict):
+            batch = page_data.get("items") or []
+            total = page_data.get("total", 0)
+        else:
+            batch = page_data if isinstance(page_data, list) else []
+            total = len(batch)
+        existing.extend(batch)
+        if len(existing) >= total or not batch:
+            break
+        page += 1
+    print_success(f"Found {len(existing)} zone units in API")
+
+    # Build lookups: by name (= zone_name_2) and by sampling_name in metadata
+    by_name: dict[str, dict] = {}
+    by_sampling_name: dict[str, dict] = {}
+    for unit in existing:
+        if unit.get("unit_type") != "zone":
+            continue
+        name = unit.get("name") or ""
+        if name:
+            by_name[name] = unit
+        meta = unit.get("sample_unit_metadata") or {}
+        sn = meta.get("sampling_name") or ""
+        if sn:
+            by_sampling_name[sn] = unit
+
+    print_step("REBUILD - Matching source zones to API units")
+    mapping: list[dict] = []
+    matched = 0
+    unmatched = 0
+
+    for i, row in enumerate(zones, 1):
+        source_id = str(row.get("id", i))
+        zone_name_2 = str(row.get("zone_name_2") or "")
+        sampling_name = str(row.get("sampling_name") or "")
+        field_id = str(row.get("field_id") or "")
+
+        unit = by_name.get(zone_name_2) or by_sampling_name.get(sampling_name)
+        if unit:
+            target_id = str(unit["id"])
+            mapping.append({
+                "source_id": source_id,
+                "target_api_id": target_id,
+                "field_id": field_id,
+                "zone_name_2": zone_name_2,
+                "sampling_name": sampling_name,
+                "unit_type": "zone",
+                "source_table": SOURCE_TABLE,
+            })
+            matched += 1
+        else:
+            print_warning(f"[{i}/{len(zones)}] No match: source_id={source_id} zone_name_2={zone_name_2!r} sampling_name={sampling_name!r}")
+            unmatched += 1
+
+    mapping_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(mapping_file, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, indent=2, ensure_ascii=False)
+    print_success(f"Mapping file saved: {mapping_file}")
+
+    print_step("REBUILD - Summary")
+    print_success(f"Source zones: {len(zones)} | Matched: {matched} | Unmatched: {unmatched}")
+
+
+# ---------------------------------------------------------------------------
 # Downgrade (delete created units from API)
 # ---------------------------------------------------------------------------
 
@@ -520,18 +607,23 @@ Examples:
         default=None,
         help="Path to the mapping JSON file. Upgrade: auto-generated with timestamp in output/. Downgrade: defaults to latest file in output/.",
     )
+    parser.add_argument(
+        "--rebuild-mapping",
+        action="store_true",
+        help="Rebuild the mapping JSON from existing API units without creating new ones",
+    )
 
     args = parser.parse_args()
 
     print_step("SETUP - Configuration")
-    mode = "DOWNGRADE" if args.downgrade else ("DRY RUN" if args.dry_run else "UPGRADE")
+    mode = "DOWNGRADE" if args.downgrade else ("REBUILD" if args.rebuild_mapping else ("DRY RUN" if args.dry_run else "UPGRADE"))
     print(f"   Mode: {mode}")
     if not args.downgrade:
         if args.value:
             print(f"   Filter: {args.col_name} = '{args.value}'")
         else:
             print("   Filter: none (all zones)")
-    # Resolve mapping file path (auto-generate timestamped name for upgrade)
+    # Resolve mapping file path (auto-generate timestamped name for upgrade/rebuild)
     if args.mapping_file is None and not args.downgrade and not args.dry_run:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         args.mapping_file = Path(__file__).parent / "output" / f"sample_units_mapping_{ts}.json"
@@ -591,9 +683,14 @@ Examples:
         print_error(f"Failed to connect to source database: {exc}")
 
     try:
-        await upgrade(conn, session, args.col_name, args.value, args.mapping_file, args.dry_run)
-        print_step("COMPLETE")
-        print_success("Migration completed successfully!")
+        if args.rebuild_mapping:
+            await rebuild_mapping(conn, session, args.col_name, args.value, args.mapping_file)
+            print_step("COMPLETE")
+            print_success("Mapping rebuilt successfully!")
+        else:
+            await upgrade(conn, session, args.col_name, args.value, args.mapping_file, args.dry_run)
+            print_step("COMPLETE")
+            print_success("Migration completed successfully!")
     except Exception as exc:
         print_error(f"An unexpected error occurred: {exc}")
     finally:
