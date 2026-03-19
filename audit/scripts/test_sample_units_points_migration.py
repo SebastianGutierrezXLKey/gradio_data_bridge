@@ -237,6 +237,7 @@ def build_unit_payload(row: dict, prefix: str) -> dict:
     for k, v in row.items():
         if k not in METADATA_EXCLUDE_COLS:
             metadata[k] = make_serializable(v)
+    metadata["sampling_name"] = raw_name
 
     return {
         "unit_type": "point",
