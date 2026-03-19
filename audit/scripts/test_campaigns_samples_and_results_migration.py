@@ -418,10 +418,10 @@ def post_campaign(session: requests.Session, row: dict) -> str:
 
     if sampling_date is not None:
         start_date = to_date_str(sampling_date)
-        name = f"Campaign {start_date}"
     else:
         start_date = to_date_str(date_key)
-        name = f"Campaign {date_key}"
+    year_month = start_date.replace("-", "")[:6] if start_date else str(date_key)[:6]
+    name = f"Campagne {year_month}"
 
     payload = {
         "name": name,
@@ -613,7 +613,8 @@ async def upgrade(
         filename = str(row.get("FILENAME") or "")
         filename_basename = filename.rsplit("/", 1)[-1]
         sampling_date = row.get("sampling_date")
-        campaign_name = f"Campaign {to_date_str(sampling_date) or to_date_str(date_key) or date_key}"
+        _start = to_date_str(sampling_date) or to_date_str(date_key) or str(date_key)
+        campaign_name = f"Campagne {_start.replace('-', '')[:6]}"
 
         if dry_run:
             print_info(
